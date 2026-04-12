@@ -12,7 +12,7 @@ from analysis.technical import compute_indicators, get_technical_summary
 from analysis.fundamental import build_fundamental_df, score_fundamentals
 from signals.signal_models import TradeSignal
 from config.settings import (
-    SMA_MID, SMA_LONG, RSI_PERIOD, ATR_PERIOD,
+    SMA_MID, SMA_LONG, RSI_PERIOD, ATR_PERIOD, EMA_SLOW,
     MIN_RISK_REWARD, MAX_SWING_SIGNALS, VOLUME_SPIKE_MULTIPLIER,
 )
 
@@ -37,16 +37,28 @@ def _compute_swing_signal(
         return None
 
     latest = df_ind.iloc[-1]
-    close = float(latest["Close"])
+
+    def _f(val):
+        """Safe float extraction — returns None for NaN/None."""
+        try:
+            v = float(val)
+            return None if (v != v) else v  # NaN check
+        except (TypeError, ValueError):
+            return None
+
+    close = _f(latest["Close"])
+    if close is None:
+        return None
+
     atr = summary.get("atr")
     rsi = summary.get("rsi")
     patterns = summary.get("patterns", [])
     macd_bullish = summary.get("macd_bullish")
-    volume_ratio = summary.get("volume_ratio", 1)
+    volume_ratio = summary.get("volume_ratio") or 1.0
 
-    sma50 = latest.get(f"SMA_{SMA_MID}")
-    sma200 = latest.get(f"SMA_{SMA_LONG}")
-    ema21 = latest.get("EMA_21")
+    sma50  = _f(latest.get(f"SMA_{SMA_MID}"))
+    sma200 = _f(latest.get(f"SMA_{SMA_LONG}"))
+    ema21  = _f(latest.get(f"EMA_{EMA_SLOW}"))
 
     if not atr or atr == 0:
         return None
@@ -55,31 +67,40 @@ def _compute_swing_signal(
     direction = "LONG"
 
     # Strategy 1: Trend Pullback
-    # Stock in uptrend, pulled back to EMA21, RSI cooling off
+    # Stock in uptrend (above SMA50 & SMA200), pulled back toward EMA21
     if (
-        sma50 and sma200 and ema21
-        and close > sma50 > sma200
-        and ema21 is not None and abs(close - ema21) / close < 0.02
-        and rsi is not None and 40 <= rsi <= 62
+        sma50 is not None and sma200 is not None and ema21 is not None
+        and close > sma50 and sma50 > sma200          # confirmed uptrend
+        and abs(close - ema21) / close < 0.05          # within 5% of EMA21
+        and rsi is not None and 35 <= rsi <= 65        # RSI cooling — wider band
     ):
         strategy = "Trend Pullback"
 
-    # Strategy 2: Breakout with volume
+    # Strategy 2: Volume Breakout
+    # Price above SMA200, RSI showing momentum, volume confirming
     elif (
-        volume_ratio >= VOLUME_SPIKE_MULTIPLIER
-        and sma200 and close > sma200
-        and rsi is not None and 50 <= rsi <= 72
-        and macd_bullish
+        sma200 is not None and close > sma200
+        and rsi is not None and 50 <= rsi <= 75
+        and volume_ratio >= VOLUME_SPIKE_MULTIPLIER
     ):
         strategy = "Volume Breakout"
 
     # Strategy 3: Oversold Reversal
+    # RSI deeply oversold — relaxed fundamental requirement
     elif (
-        rsi is not None and rsi < 32
-        and fund_scores.get("composite_score", 0) > 0.45
-        and fund_scores.get("health_score", 0) > 0.4
+        rsi is not None and rsi < 40
+        and fund_scores.get("composite_score", 0.5) > 0.35
     ):
         strategy = "Oversold Reversal"
+
+    # Strategy 4: Bullish Setup (broader catch-all)
+    # Above SMA200 + MACD bullish + RSI not overbought
+    elif (
+        sma200 is not None and close > sma200
+        and macd_bullish is True
+        and rsi is not None and rsi < 70
+    ):
+        strategy = "Bullish Setup"
 
     if strategy is None:
         return None

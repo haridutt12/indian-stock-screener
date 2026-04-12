@@ -27,7 +27,7 @@ with st.sidebar:
     st.subheader("Filter Signals")
     min_confidence = st.slider("Min Confidence (stars)", 1, 5, 2)
 
-    all_strategies = ["Trend Pullback", "Volume Breakout", "Oversold Reversal"]
+    all_strategies = ["Trend Pullback", "Volume Breakout", "Oversold Reversal", "Bullish Setup"]
     selected_strategies = st.multiselect("Strategy", all_strategies, default=all_strategies)
 
     run_btn = st.button("🔄 Generate Signals", type="primary", width="stretch")
