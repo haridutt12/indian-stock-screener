@@ -198,4 +198,13 @@ def generate_intraday_signals(
                 logger.warning(f"Intraday signal error for {ticker}: {e}")
 
     signals.sort(key=lambda s: s.confidence, reverse=True)
-    return signals[:MAX_INTRADAY_SIGNALS]
+    signals = signals[:MAX_INTRADAY_SIGNALS]
+
+    # Persist signals for backtesting
+    try:
+        from signals.signal_logger import get_signal_logger
+        get_signal_logger().log_signals(signals)
+    except Exception as e:
+        logger.warning(f"Signal logging failed (intraday): {e}")
+
+    return signals
