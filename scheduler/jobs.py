@@ -79,6 +79,19 @@ def run_post_market_scan():
         logger.error(f"Post-market scan failed: {e}")
 
 
+def run_outcome_tracker():
+    """4:30 PM IST — Resolve open signal outcomes against today's price data."""
+    if not is_trading_day():
+        return
+    logger.info(f"[{datetime.now(IST)}] Running outcome tracker...")
+    try:
+        from signals.outcome_tracker import update_open_signal_outcomes
+        resolved = update_open_signal_outcomes()
+        logger.info(f"Outcome tracker done. {resolved} signal(s) resolved.")
+    except Exception as e:
+        logger.error(f"Outcome tracker failed: {e}")
+
+
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=IST)
 
@@ -103,6 +116,14 @@ def build_scheduler() -> BackgroundScheduler:
         run_post_market_scan,
         CronTrigger(hour=16, minute=0, day_of_week="0-4", timezone=IST),
         id="post_market_scan",
+        replace_existing=True,
+    )
+
+    # Outcome tracker: 4:30 PM IST Mon-Fri — resolves open signals
+    scheduler.add_job(
+        run_outcome_tracker,
+        CronTrigger(hour=16, minute=30, day_of_week="0-4", timezone=IST),
+        id="outcome_tracker",
         replace_existing=True,
     )
 

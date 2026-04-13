@@ -205,4 +205,13 @@ def generate_swing_signals(
 
     # Sort by confidence desc, then by composite score
     signals.sort(key=lambda s: (s.confidence, s.technical_score + s.fundamental_score), reverse=True)
-    return signals[:MAX_SWING_SIGNALS]
+    signals = signals[:MAX_SWING_SIGNALS]
+
+    # Persist signals for backtesting
+    try:
+        from signals.signal_logger import get_signal_logger
+        get_signal_logger().log_signals(signals)
+    except Exception as e:
+        logger.warning(f"Signal logging failed (swing): {e}")
+
+    return signals
