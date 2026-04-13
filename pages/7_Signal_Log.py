@@ -234,7 +234,7 @@ def _color_pnl(val):
 
 styled = (
     df_display.style
-    .applymap(_color_pnl, subset=["pnl_r"])
+    .map(_color_pnl, subset=["pnl_r"])
     .format(
         {
             "Entry": "{:.2f}",
