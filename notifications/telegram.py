@@ -19,8 +19,8 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
 
 def _get_config():
-    token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    channel = os.getenv("TELEGRAM_CHANNEL_ID", "")
+    token   = os.getenv("TELEGRAM_BOT_TOKEN",  "8662039720:AAGo8hrI_XBiqV87y_fErFrIkgmix9huTMs")
+    channel = os.getenv("TELEGRAM_CHANNEL_ID", "@NSEStockSignals")
     return token, channel
 
 
