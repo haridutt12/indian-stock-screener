@@ -123,6 +123,23 @@ c8.metric("Total Net P&L",
           f"₹{net_pnl_total:+,.0f}" if net_pnl_total is not None else "—",
           help=f"After brokerage, STT, exchange, stamp, GST  (₹{position_size:,}/trade)")
 
+# ── Telegram test ──────────────────────────────────────────────────────────────
+with st.expander("📨 Test Telegram Alerts"):
+    if st.button("Send Test Message to @NSEStockSignals"):
+        from notifications.telegram import send_message, is_configured
+        if not is_configured():
+            st.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set in Streamlit secrets.")
+        else:
+            ok = send_message(
+                "✅ <b>Test message from NSE Stock Screener</b>\n\n"
+                "Telegram alerts are working correctly.\n"
+                "You will receive swing + intraday signals every trading day."
+            )
+            if ok:
+                st.success("✅ Message sent to @NSEStockSignals!")
+            else:
+                st.error("Failed to send — check Streamlit logs.")
+
 if perf["total"] == 0:
     st.info(
         "No signals logged yet. Generate signals from the **Swing Trades** or "

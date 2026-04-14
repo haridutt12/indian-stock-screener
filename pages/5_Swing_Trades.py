@@ -8,7 +8,7 @@ import streamlit as st
 from data.fetcher import fetch_single_stock
 from data.news_fetcher import fetch_market_news, format_news_for_claude
 from analysis.technical import compute_indicators
-from analysis.sentiment import analyze_market_sentiment, has_api_key
+from analysis.sentiment import analyze_market_sentiment
 from signals.swing_signals import generate_swing_signals
 from ui.components import signal_card
 from ui.charts import candlestick_chart, rsi_macd_chart
@@ -35,13 +35,12 @@ with st.sidebar:
 # ── SENTIMENT SCORE ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def get_sentiment_score():
-    if not has_api_key():
-        return 0.5
     news = fetch_market_news()
-    news_text = format_news_for_claude(news, max_items=25)
-    result = analyze_market_sentiment(news_text)
-    score = result.get("overall_sentiment", 5)
-    return score / 10  # Normalize 1-10 to 0-1
+    result = analyze_market_sentiment(
+        format_news_for_claude(news, max_items=25),
+        news_items=news,
+    )
+    return result.get("overall_sentiment", 5) / 10
 
 # ── GENERATE SIGNALS ───────────────────────────────────────────────────────────
 if run_btn or "swing_signals" not in st.session_state:
