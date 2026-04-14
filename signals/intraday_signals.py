@@ -200,10 +200,12 @@ def generate_intraday_signals(
     signals.sort(key=lambda s: s.confidence, reverse=True)
     signals = signals[:MAX_INTRADAY_SIGNALS]
 
-    # Persist signals for backtesting
+    # Persist signals for backtesting — only on actual trading days
     try:
-        from signals.signal_logger import get_signal_logger
-        get_signal_logger().log_signals(signals)
+        from data.market_status import is_trading_day
+        if is_trading_day():
+            from signals.signal_logger import get_signal_logger
+            get_signal_logger().log_signals(signals)
     except Exception as e:
         logger.warning(f"Signal logging failed (intraday): {e}")
 
