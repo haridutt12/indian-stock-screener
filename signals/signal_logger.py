@@ -15,11 +15,14 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pytz
 
-from signals.signal_models import TradeSignal
+# TradeSignal is only needed for type hints, not at runtime.
+# Using TYPE_CHECKING avoids any circular-import or init-order issues.
+if TYPE_CHECKING:
+    from signals.signal_models import TradeSignal
 
 logger = logging.getLogger(__name__)
 
