@@ -50,14 +50,6 @@ st.markdown("""
 ---
 """)
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.info("**Data**: Yahoo Finance (free, NSE stocks)")
-with col2:
-    st.info("**AI**: Claude claude-sonnet-4-6 for sentiment")
-with col3:
-    st.info("**Universe**: Nifty 50 / Nifty 200")
-
 st.markdown("---")
 
 # Quick market status on home page
