@@ -75,6 +75,58 @@ def run_pre_market_scan():
         logger.error(f"Pre-market scan failed: {e}")
 
 
+def _send_market_update(label: str):
+    """Shared helper — fetch live data and push a market update to Telegram."""
+    try:
+        from data.fetcher import fetch_index_data, get_top_gainers_losers
+        from data.news_fetcher import fetch_market_news
+        from notifications.telegram import format_market_update, send_message
+        from config.settings import INDICES
+
+        indices = {}
+        for name, ticker in list(INDICES.items())[:4]:   # Nifty50, BankNifty, Sensex, Midcap
+            df = fetch_index_data(ticker, period="2d", interval="1d")
+            if df is not None and len(df) >= 2:
+                price  = float(df["Close"].iloc[-1])
+                change = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+                indices[name] = {"price": price, "change_pct": round(float(change), 2)}
+
+        gainers, losers = get_top_gainers_losers()
+        news = fetch_market_news(use_cache=True)
+
+        # Quick breadth calc from gainers/losers list
+        advances = sum(1 for g in gainers)
+        declines = sum(1 for l in losers)
+
+        msg = format_market_update(
+            label=label,
+            indices=indices,
+            top_gainers=gainers[:3],
+            top_losers=losers[:3],
+            advances=advances,
+            declines=declines,
+            news_headlines=news[:3],
+        )
+        send_message(msg)
+        logger.info(f"Market update '{label}' sent to Telegram.")
+    except Exception as e:
+        logger.error(f"Market update '{label}' failed: {e}")
+
+
+def run_midday_update():
+    """12:00 PM IST — Mid-day market snapshot."""
+    if not is_trading_day():
+        return
+    _send_market_update("Mid-Day Update")
+
+
+def run_closing_update():
+    """3:35 PM IST — Market closing summary."""
+    if not is_trading_day():
+        return
+    _send_market_update("Market Closing Summary")
+
+
 def run_intraday_refresh():
     """Every 5 min during 9:15–15:30 IST — Refresh prices and intraday signals."""
     if not is_trading_day():
@@ -139,6 +191,20 @@ def build_scheduler() -> BackgroundScheduler:
         CronTrigger(hour=9, minute=30, day_of_week="0-4", timezone=IST),
         id="intraday_signal_scan",
         replace_existing=True,
+    )
+
+    # Mid-day update: 12:00 PM IST Mon-Fri
+    scheduler.add_job(
+        run_midday_update,
+        CronTrigger(hour=12, minute=0, day_of_week="0-4", timezone=IST),
+        id="midday_update", replace_existing=True,
+    )
+
+    # Closing summary: 3:35 PM IST Mon-Fri (5 min after market close)
+    scheduler.add_job(
+        run_closing_update,
+        CronTrigger(hour=15, minute=35, day_of_week="0-4", timezone=IST),
+        id="closing_update", replace_existing=True,
     )
 
     # Intraday refresh: Every 5 min, 9:15–15:30 IST Mon-Fri

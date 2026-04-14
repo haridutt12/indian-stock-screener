@@ -158,6 +158,63 @@ def format_morning_briefing(sentiment: dict, swing_count: int, intraday_count: i
     return msg
 
 
+def format_market_update(label: str, indices: dict, top_gainers: list,
+                         top_losers: list, advances: int, declines: int,
+                         news_headlines: list) -> str:
+    """
+    Format a mid-session or closing market update.
+    label: e.g. 'Mid-Day Update' or 'Market Closing Summary'
+    """
+    now  = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+    emoji = "📊"
+
+    # Index lines
+    idx_lines = ""
+    for name, data in indices.items():
+        val   = data.get("price", 0)
+        chg   = data.get("change_pct", 0)
+        arrow = "🟢" if chg >= 0 else "🔴"
+        idx_lines += f"  {arrow} <b>{name}</b>: {val:,.0f} ({chg:+.2f}%)\n"
+
+    # Breadth
+    total = advances + declines
+    breadth_pct = advances / total * 100 if total else 50
+    breadth_emoji = "🟢" if breadth_pct > 55 else ("🔴" if breadth_pct < 45 else "🟡")
+
+    # Top gainers/losers (max 3 each)
+    gainer_lines = ""
+    for g in top_gainers[:3]:
+        gainer_lines += f"  ▲ {g.get('ticker','').replace('.NS','')}  {g.get('change_pct',0):+.1f}%\n"
+
+    loser_lines = ""
+    for l in top_losers[:3]:
+        loser_lines += f"  ▼ {l.get('ticker','').replace('.NS','')}  {l.get('change_pct',0):+.1f}%\n"
+
+    # News (max 3 headlines)
+    news_lines = ""
+    for h in news_headlines[:3]:
+        title = (h.get("title") or "")[:65]
+        news_lines += f"  • {title}\n"
+
+    msg = (
+        f"{emoji} <b>NSE {label}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🕐 {now}\n\n"
+        f"<b>Indices:</b>\n{idx_lines}\n"
+        f"{breadth_emoji} <b>Breadth:</b> {advances} Adv / {declines} Dec "
+        f"({breadth_pct:.0f}% advancing)\n\n"
+    )
+    if gainer_lines:
+        msg += f"📈 <b>Top Gainers:</b>\n{gainer_lines}"
+    if loser_lines:
+        msg += f"📉 <b>Top Losers:</b>\n{loser_lines}"
+    if news_lines:
+        msg += f"\n📰 <b>Latest News:</b>\n{news_lines}"
+
+    msg += f"\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>"
+    return msg
+
+
 def notify_swing_signals(signals: list) -> int:
     """Send alerts for a list of swing signals. Returns count sent."""
     if not is_configured() or not signals:
