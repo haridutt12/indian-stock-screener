@@ -7,17 +7,20 @@ Page 2: News & AI Sentiment Analysis
 """
 import streamlit as st
 from data.news_fetcher import fetch_market_news, format_news_for_claude
-from analysis.sentiment import analyze_market_sentiment, has_api_key
+from analysis.sentiment import analyze_market_sentiment, has_api_key, get_engine_name
 from ui.components import news_item, sector_sentiment_bar
 
 st.set_page_config(page_title="News & Sentiment", layout="wide", page_icon="📰")
 st.title("📰 News & Market Sentiment")
 
 if not has_api_key():
-    st.warning(
-        "⚠️ **ANTHROPIC_API_KEY not set.** AI analysis is unavailable. "
-        "Add your key to the `.env` file to enable sentiment analysis."
+    st.info(
+        "ℹ️ **Running free VADER sentiment engine** — keyword & rule-based analysis, "
+        "no API key required. For deeper AI-powered insights, add an "
+        "`ANTHROPIC_API_KEY` in Streamlit Cloud → App Settings → Secrets."
     )
+else:
+    st.caption(f"Engine: {get_engine_name()}")
 
 # ── FETCH NEWS ─────────────────────────────────────────────────────────────────
 with st.spinner("Fetching latest market news..."):
@@ -29,14 +32,11 @@ if not news_items:
 
 st.caption(f"Fetched {len(news_items)} news items from multiple sources.")
 
-# ── AI SENTIMENT ANALYSIS ──────────────────────────────────────────────────────
-if has_api_key():
-    with st.spinner("Analyzing sentiment with Claude..."):
-        news_text = format_news_for_claude(news_items, max_items=30)
-        sentiment = analyze_market_sentiment(news_text)
-else:
-    from analysis.sentiment import _fallback_sentiment
-    sentiment = _fallback_sentiment()
+# ── SENTIMENT ANALYSIS (Claude if key set, else free VADER) ────────────────────
+engine = get_engine_name()
+with st.spinner(f"Analysing sentiment with {engine}…"):
+    news_text = format_news_for_claude(news_items, max_items=30)
+    sentiment = analyze_market_sentiment(news_text, news_items=news_items)
 
 # Overall sentiment header
 overall = sentiment.get("overall_sentiment", 5)
