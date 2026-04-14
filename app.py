@@ -2,10 +2,71 @@
 Indian Stock Market Screener — Main Entry Point
 Run with: streamlit run app.py
 """
+import logging
+import threading
 import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
+
+@st.cache_resource
+def _start_scheduler():
+    """Start the background scheduler once per app instance."""
+    try:
+        from scheduler.jobs import start_scheduler
+        start_scheduler()
+        logger.info("Background scheduler started.")
+    except Exception as e:
+        logger.error(f"Scheduler failed to start: {e}")
+
+
+def _catchup_signals():
+    """
+    If the app wakes from sleep and the scheduler missed today's signals,
+    generate them now in a background thread (non-blocking).
+    """
+    from datetime import date
+    from data.market_status import is_trading_day
+    import pytz
+
+    ist = pytz.timezone("Asia/Kolkata")
+    from datetime import datetime
+    now = datetime.now(ist)
+    today = date.today().isoformat()
+
+    # Only run on trading days after 9:30 AM IST
+    if not is_trading_day() or now.hour < 9 or (now.hour == 9 and now.minute < 30):
+        return
+
+    try:
+        from signals.signal_logger import get_signal_logger
+        existing = get_signal_logger().get_signals(days_back=1)
+        today_signals = [s for s in existing if s.get("signal_date") == today]
+        if today_signals:
+            return   # already logged today
+    except Exception:
+        return
+
+    def _generate():
+        try:
+            from signals.swing_signals import generate_swing_signals
+            from signals.intraday_signals import generate_intraday_signals
+            from config.stock_universe import NIFTY_50
+            tickers = list(NIFTY_50.values())
+            generate_swing_signals(tickers)
+            if now.hour < 15 or (now.hour == 15 and now.minute < 30):
+                generate_intraday_signals(tickers)
+            logger.info("Catch-up signal generation complete.")
+        except Exception as e:
+            logger.error(f"Catch-up signal generation failed: {e}")
+
+    threading.Thread(target=_generate, daemon=True).start()
+
+
+_start_scheduler()
+_catchup_signals()
 
 st.set_page_config(
     page_title="Indian Stock Screener",

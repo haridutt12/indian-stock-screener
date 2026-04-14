@@ -16,6 +16,22 @@ logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
 
 
+def run_intraday_signal_scan():
+    """9:30 AM IST — Generate and log intraday signals after first full candle."""
+    if not is_trading_day():
+        return
+    logger.info(f"[{datetime.now(IST)}] Running intraday signal scan...")
+    try:
+        from signals.intraday_signals import generate_intraday_signals
+        from config.stock_universe import NIFTY_50
+
+        tickers = list(NIFTY_50.values())
+        signals = generate_intraday_signals(tickers)   # logging is inside the function
+        logger.info(f"Intraday signal scan done. {len(signals)} signal(s) logged.")
+    except Exception as e:
+        logger.error(f"Intraday signal scan failed: {e}")
+
+
 def run_pre_market_scan():
     """8:45 AM IST — Fetch news, run sentiment, generate swing signals."""
     if not is_trading_day():
@@ -95,11 +111,19 @@ def run_outcome_tracker():
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=IST)
 
-    # Pre-market: 8:45 AM IST Mon-Fri
+    # Pre-market: 8:45 AM IST Mon-Fri — fetch news + generate swing signals
     scheduler.add_job(
         run_pre_market_scan,
         CronTrigger(hour=8, minute=45, day_of_week="0-4", timezone=IST),
         id="pre_market_scan",
+        replace_existing=True,
+    )
+
+    # Intraday signals: 9:30 AM IST Mon-Fri — after first full candle
+    scheduler.add_job(
+        run_intraday_signal_scan,
+        CronTrigger(hour=9, minute=30, day_of_week="0-4", timezone=IST),
+        id="intraday_signal_scan",
         replace_existing=True,
     )
 
