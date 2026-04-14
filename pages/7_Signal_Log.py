@@ -81,10 +81,13 @@ with st.sidebar:
         with st.spinner("Fetching live data…"):
             try:
                 from scheduler.jobs import _send_market_update
-                _send_market_update("Live Market Update")
-                st.success("✅ Sent to @NSEStockSignals!")
+                ok = _send_market_update("Live Market Update")
+                if ok:
+                    st.success("✅ Sent to @NSEStockSignals!")
+                else:
+                    st.error("Telegram API returned failure — check bot token/channel in secrets.")
             except Exception as e:
-                st.error(f"Failed: {e}")
+                st.error(f"Error: {e}")
 
     st.divider()
     st.subheader("Telegram")

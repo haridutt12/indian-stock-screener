@@ -75,42 +75,47 @@ def run_pre_market_scan():
         logger.error(f"Pre-market scan failed: {e}")
 
 
-def _send_market_update(label: str):
+def _send_market_update(label: str) -> bool:
     """Shared helper — fetch live data and push a market update to Telegram."""
     try:
         from data.fetcher import fetch_index_data, get_top_gainers_losers
         from data.news_fetcher import fetch_market_news
         from notifications.telegram import format_market_update, send_message
         from config.settings import INDICES
+        from config.stock_universe import NIFTY_50
 
         indices = {}
-        for name, ticker in list(INDICES.items())[:4]:   # Nifty50, BankNifty, Sensex, Midcap
+        for name, ticker in list(INDICES.items())[:4]:
             df = fetch_index_data(ticker, period="2d", interval="1d")
             if df is not None and len(df) >= 2:
                 price  = float(df["Close"].iloc[-1])
                 change = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
                 indices[name] = {"price": price, "change_pct": round(float(change), 2)}
 
-        gainers, losers = get_top_gainers_losers()
-        news = fetch_market_news(use_cache=True)
+        gl     = get_top_gainers_losers(list(NIFTY_50.values()), top_n=3)
+        gainers = gl.get("gainers", [])
+        losers  = gl.get("losers", [])
+        news    = fetch_market_news(use_cache=True)
 
-        # Quick breadth calc from gainers/losers list
-        advances = sum(1 for g in gainers)
-        declines = sum(1 for l in losers)
+        advances = len(gainers)
+        declines = len(losers)
 
         msg = format_market_update(
             label=label,
             indices=indices,
-            top_gainers=gainers[:3],
-            top_losers=losers[:3],
+            top_gainers=gainers,
+            top_losers=losers,
             advances=advances,
             declines=declines,
             news_headlines=news[:3],
         )
-        send_message(msg)
-        logger.info(f"Market update '{label}' sent to Telegram.")
+        ok = send_message(msg)
+        if ok:
+            logger.info(f"Market update '{label}' sent to Telegram.")
+        return ok
     except Exception as e:
         logger.error(f"Market update '{label}' failed: {e}")
+        raise   # re-raise so callers can surface the error
 
 
 def run_midday_update():
