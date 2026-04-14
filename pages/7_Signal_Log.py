@@ -1,14 +1,13 @@
 """
 Page 7: Signal Log & Backtesting Dashboard
 
-Displays all historically logged signals with their outcomes and provides
-aggregate performance metrics to evaluate strategy quality over time.
+Displays all historically logged signals with their outcomes, realistic
+transaction costs, and aggregate performance metrics for strategy evaluation.
 """
 import json
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
 from signals.signal_logger import (
@@ -17,13 +16,15 @@ from signals.signal_logger import (
     OUTCOME_TARGET1,
     OUTCOME_TARGET2,
     OUTCOME_STOPPED,
+    OUTCOME_SQUARED_OFF,
     OUTCOME_EXPIRED,
 )
+from signals.trade_costs import DEFAULT_POSITION_SIZE_INR
 
 st.set_page_config(page_title="Signal Log", layout="wide", page_icon="📋")
 st.title("📋 Signal Log & Backtesting")
 
-# ── Sidebar filters ────────────────────────────────────────────────────────────
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     timeframe_opt = st.selectbox("Timeframe", ["All", "INTRADAY", "SWING"])
@@ -31,61 +32,68 @@ with st.sidebar:
 
     strategy_opts = [
         "All",
-        "Opening Range Breakout",
-        "VWAP Bounce",
-        "Trend Pullback",
-        "Volume Breakout",
-        "Oversold Reversal",
-        "Bullish Setup",
+        "Opening Range Breakout", "VWAP Bounce",
+        "Trend Pullback", "Volume Breakout", "Oversold Reversal", "Bullish Setup",
     ]
     strategy_opt = st.selectbox("Strategy", strategy_opts)
     strategy = None if strategy_opt == "All" else strategy_opt
 
-    outcome_opts = ["All", OUTCOME_OPEN, OUTCOME_TARGET1, OUTCOME_TARGET2, OUTCOME_STOPPED, OUTCOME_EXPIRED]
+    outcome_opts = [
+        "All",
+        OUTCOME_OPEN, OUTCOME_TARGET1, OUTCOME_TARGET2,
+        OUTCOME_STOPPED, OUTCOME_SQUARED_OFF, OUTCOME_EXPIRED,
+    ]
     outcome_opt = st.selectbox("Outcome", outcome_opts)
     outcome_filter = None if outcome_opt == "All" else outcome_opt
 
     days_back = st.slider("History (days)", 7, 180, 60)
 
     st.divider()
+    st.subheader("Cost Settings")
+    position_size = st.number_input(
+        "Position Size (₹)", min_value=10_000, max_value=10_000_000,
+        value=int(DEFAULT_POSITION_SIZE_INR), step=10_000,
+        help="Capital per trade used to calculate realistic ₹ costs and P&L.",
+    )
+
+    st.divider()
     if st.button("Force Resolve Open Signals", help="Run the outcome tracker now"):
-        with st.spinner("Resolving outcomes..."):
+        with st.spinner("Resolving outcomes…"):
             from signals.outcome_tracker import update_open_signal_outcomes
-            n = update_open_signal_outcomes()
+            n = update_open_signal_outcomes(position_size_inr=float(position_size))
             st.success(f"Resolved {n} signal(s).")
             st.rerun()
 
 # ── Fetch data ─────────────────────────────────────────────────────────────────
-log = get_signal_logger()
-
+log  = get_signal_logger()
 perf = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
 signals = log.get_signals(
-    timeframe=timeframe,
-    strategy=strategy,
-    outcome=outcome_filter,
-    days_back=days_back,
+    timeframe=timeframe, strategy=strategy,
+    outcome=outcome_filter, days_back=days_back,
 )
 
-# ── Performance summary metrics ────────────────────────────────────────────────
+# ── Performance summary ────────────────────────────────────────────────────────
 st.subheader("Performance Summary")
 
-total_closed = perf["won"] + perf["lost"]
+total_closed = perf["won"] + perf["lost"] + perf["squared_off"]
 
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-col1.metric("Total Signals", perf["total"])
-col2.metric("Open", perf["open"])
-col3.metric("Won (T1+T2)", perf["won"])
-col4.metric("Stopped", perf["lost"])
-col5.metric(
-    "Win Rate",
-    f"{perf['win_rate']}%" if total_closed > 0 else "—",
-)
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+c1.metric("Total Signals",  perf["total"])
+c2.metric("Open",           perf["open"])
+c3.metric("Won (T1+T2)",    perf["won"])
+c4.metric("Stopped",        perf["lost"])
+c5.metric("Squared Off",    perf["squared_off"],
+          help="Intraday positions closed at market end (3:30 PM)")
+c6.metric("Win Rate",
+          f"{perf['win_rate']}%" if total_closed > 0 else "—")
 avg_r = perf.get("avg_r")
-col6.metric(
-    "Avg R (closed)",
-    f"{avg_r:+.2f}R" if avg_r is not None else "—",
-    help="Average risk-multiple on resolved (non-expired) trades. >0 = profitable.",
-)
+c7.metric("Avg R (gross)",
+          f"{avg_r:+.2f}R" if avg_r is not None else "—",
+          help="Average R-multiple before costs on all closed trades.")
+net_pnl_total = perf.get("total_net_pnl_inr")
+c8.metric("Total Net P&L",
+          f"₹{net_pnl_total:+,.0f}" if net_pnl_total is not None else "—",
+          help=f"After brokerage, STT, exchange, stamp, GST  (₹{position_size:,}/trade)")
 
 if perf["total"] == 0:
     st.info(
@@ -94,101 +102,115 @@ if perf["total"] == 0:
     )
     st.stop()
 
-# ── Charts row ─────────────────────────────────────────────────────────────────
+# ── Charts ─────────────────────────────────────────────────────────────────────
 chart_col1, chart_col2 = st.columns(2)
+
+OUTCOME_LABELS = {
+    OUTCOME_TARGET2:     "Target 2 Hit",
+    OUTCOME_TARGET1:     "Target 1 Hit",
+    OUTCOME_STOPPED:     "Stopped Out",
+    OUTCOME_SQUARED_OFF: "Squared Off",
+    OUTCOME_EXPIRED:     "Expired",
+    OUTCOME_OPEN:        "Still Open",
+}
+OUTCOME_COLORS = {
+    OUTCOME_TARGET2:     "#00C896",
+    OUTCOME_TARGET1:     "#5AD8A6",
+    OUTCOME_STOPPED:     "#F4664A",
+    OUTCOME_SQUARED_OFF: "#FAAD14",
+    OUTCOME_EXPIRED:     "#9BA7B4",
+    OUTCOME_OPEN:        "#D9D9D9",
+}
+OUTCOME_EMOJI = {
+    OUTCOME_TARGET2:     "✅✅",
+    OUTCOME_TARGET1:     "✅",
+    OUTCOME_STOPPED:     "❌",
+    OUTCOME_SQUARED_OFF: "🔔",
+    OUTCOME_EXPIRED:     "⏳",
+    OUTCOME_OPEN:        "🔵",
+}
 
 with chart_col1:
     st.subheader("Outcome Distribution")
-    outcome_labels = {
-        OUTCOME_TARGET2:  "Target 2 Hit",
-        OUTCOME_TARGET1:  "Target 1 Hit",
-        OUTCOME_STOPPED:  "Stopped Out",
-        OUTCOME_EXPIRED:  "Expired",
-        OUTCOME_OPEN:     "Still Open",
-    }
-    outcome_colors = {
-        OUTCOME_TARGET2:  "#00C896",
-        OUTCOME_TARGET1:  "#5AD8A6",
-        OUTCOME_STOPPED:  "#F4664A",
-        OUTCOME_EXPIRED:  "#FAAD14",
-        OUTCOME_OPEN:     "#9BA7B4",
-    }
     by_outcome = perf.get("by_outcome", {})
     if by_outcome:
-        labels = [outcome_labels.get(k, k) for k in by_outcome]
+        labels = [OUTCOME_LABELS.get(k, k) for k in by_outcome]
         values = list(by_outcome.values())
-        colors = [outcome_colors.get(k, "#cccccc") for k in by_outcome]
+        colors = [OUTCOME_COLORS.get(k, "#cccccc") for k in by_outcome]
         fig_pie = go.Figure(go.Pie(
-            labels=labels,
-            values=values,
+            labels=labels, values=values,
             marker=dict(colors=colors),
-            hole=0.4,
-            textinfo="label+percent",
+            hole=0.4, textinfo="label+percent",
         ))
         fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280, showlegend=False)
         st.plotly_chart(fig_pie, use_container_width=True)
-    else:
-        st.info("No outcome data yet.")
 
 with chart_col2:
-    st.subheader("Cumulative R (Equity Curve)")
-    closed = [s for s in signals if s["outcome"] not in (OUTCOME_OPEN, OUTCOME_EXPIRED) and s.get("pnl_r") is not None]
+    st.subheader("Cumulative Net P&L (₹)")
+    # Use net_pnl_inr when available, else gross R proxy
+    closed = [
+        s for s in signals
+        if s["outcome"] not in (OUTCOME_OPEN,)
+        and s.get("outcome_at")
+    ]
     if closed:
-        closed_sorted = sorted(closed, key=lambda x: x["outcome_at"] or x["signal_date"])
-        pnl_series = [s["pnl_r"] for s in closed_sorted]
-        dates = [s.get("outcome_at") or s["signal_date"] for s in closed_sorted]
-        cumulative = [sum(pnl_series[: i + 1]) for i in range(len(pnl_series))]
-        fig_equity = go.Figure()
-        fig_equity.add_trace(go.Scatter(
-            x=dates,
-            y=cumulative,
+        closed_sorted = sorted(closed, key=lambda x: x["outcome_at"])
+        dates, cum_pnl = [], []
+        running = 0.0
+        for s in closed_sorted:
+            val = s.get("net_pnl_inr")
+            if val is None:
+                # fallback: gross pnl_r scaled to risk amount
+                r = s.get("pnl_r") or 0.0
+                sl_pct = (s.get("sl_pct") or 2.0) / 100
+                val = r * sl_pct * position_size
+            running += val
+            dates.append(s["outcome_at"][:10])
+            cum_pnl.append(running)
+
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(
+            x=dates, y=cum_pnl,
             mode="lines+markers",
-            line=dict(color="#1890FF", width=2),
+            line=dict(color="#1890FF" if running >= 0 else "#F4664A", width=2),
             marker=dict(size=5),
-            hovertemplate="Trade %{pointNumber+1}<br>Cumulative R: %{y:.2f}<extra></extra>",
+            fill="tozeroy",
+            fillcolor="rgba(24,144,255,0.1)" if running >= 0 else "rgba(244,100,74,0.1)",
+            hovertemplate="Date: %{x}<br>Cumulative P&L: ₹%{y:,.0f}<extra></extra>",
         ))
-        fig_equity.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-        fig_equity.update_layout(
-            yaxis_title="Cumulative R",
-            xaxis_title="",
-            margin=dict(t=10, b=40, l=40, r=10),
-            height=280,
+        fig_eq.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_eq.update_layout(
+            yaxis_title="Net P&L (₹)", xaxis_title="",
+            margin=dict(t=10, b=40, l=60, r=10), height=280,
         )
-        st.plotly_chart(fig_equity, use_container_width=True)
+        st.plotly_chart(fig_eq, use_container_width=True)
     else:
         st.info("No resolved trades yet for equity curve.")
 
-# ── Per-strategy breakdown ─────────────────────────────────────────────────────
+# ── Strategy breakdown ─────────────────────────────────────────────────────────
 by_strat = perf.get("by_strategy", {})
 if by_strat:
     st.subheader("Strategy Breakdown")
     strat_rows = []
-    for name, stats in by_strat.items():
-        closed_n = stats["wins"] + stats["losses"]
+    for name, s in by_strat.items():
         strat_rows.append({
-            "Strategy":  name,
-            "Total":     stats["total"],
-            "Won":       stats["wins"],
-            "Stopped":   stats["losses"],
-            "Win Rate":  f"{stats['win_rate']}%" if closed_n else "—",
-            "Avg R":     f"{stats['avg_r']:+.2f}" if stats.get("avg_r") is not None else "—",
+            "Strategy":       name,
+            "Total":          s["total"],
+            "Won":            s["wins"],
+            "Stopped":        s["losses"],
+            "Win Rate":       f"{s['win_rate']}%" if (s["wins"] + s["losses"]) > 0 else "—",
+            "Avg R (gross)":  f"{s['avg_r']:+.2f}" if s.get("avg_r") is not None else "—",
+            "Net P&L (₹)":    f"₹{s['net_pnl_inr']:+,.0f}" if s.get("net_pnl_inr") is not None else "—",
+            "Avg Net P&L":    f"₹{s['avg_net_pnl']:+,.0f}" if s.get("avg_net_pnl") is not None else "—",
         })
     st.dataframe(pd.DataFrame(strat_rows).set_index("Strategy"), use_container_width=True)
 
 # ── Signal history table ───────────────────────────────────────────────────────
-st.subheader(f"Signal History ({len(signals)} records)")
+st.subheader(f"Trade Journal ({len(signals)} records)")
 
 if not signals:
     st.info("No signals match the current filters.")
     st.stop()
-
-OUTCOME_EMOJI = {
-    OUTCOME_TARGET2: "✅✅",
-    OUTCOME_TARGET1: "✅",
-    OUTCOME_STOPPED: "❌",
-    OUTCOME_EXPIRED: "⏳",
-    OUTCOME_OPEN:    "🔵",
-}
 
 rows = []
 for s in signals:
@@ -198,56 +220,92 @@ for s in signals:
             patterns = json.loads(patterns)
         except Exception:
             patterns = []
+
+    outcome_str = OUTCOME_EMOJI.get(s["outcome"], "") + " " + s["outcome"]
+
+    # Cost and net P&L display
+    cost_total = s.get("cost_total_inr")
+    net_pnl    = s.get("net_pnl_inr")
+    net_pnl_r  = s.get("net_pnl_r")
+
     rows.append({
-        "Date":      s["signal_date"],
-        "Ticker":    s["ticker"],
-        "TF":        s["timeframe"],
-        "Strategy":  s["strategy"],
-        "Dir":       s["direction"],
-        "Entry":     s["entry_price"],
-        "SL":        s["stop_loss"],
-        "T1":        s["target_1"],
-        "T2":        s["target_2"],
-        "R:R":       s["risk_reward"],
-        "Conf":      "★" * (s["confidence"] or 1),
-        "Outcome":   OUTCOME_EMOJI.get(s["outcome"], s["outcome"]) + " " + s["outcome"],
-        "Exit":      s.get("outcome_price", ""),
-        "pnl_r":     s.get("pnl_r", ""),
-        "Sector":    s.get("sector", ""),
+        "Date":          s["signal_date"],
+        "Entry Time":    (s.get("logged_at") or "")[:16],
+        "Exit Time":     (s.get("outcome_at") or "—")[:16],
+        "Ticker":        s["ticker"],
+        "TF":            s["timeframe"],
+        "Strategy":      s["strategy"],
+        "Dir":           s["direction"],
+        "Entry ₹":       s["entry_price"],
+        "SL ₹":          s["stop_loss"],
+        "T1 ₹":          s["target_1"],
+        "T2 ₹":          s["target_2"],
+        "R:R":           s["risk_reward"],
+        "Conf":          "★" * (s["confidence"] or 1),
+        "Outcome":       outcome_str,
+        "Exit ₹":        s.get("outcome_price") or "",
+        "Gross R":       s.get("pnl_r") or "",
+        "Cost ₹":        cost_total if cost_total is not None else "",
+        "Net P&L ₹":     net_pnl   if net_pnl   is not None else "",
+        "Net R":         net_pnl_r if net_pnl_r is not None else "",
+        "Sector":        s.get("sector", ""),
     })
 
 df_display = pd.DataFrame(rows)
 
-# Colour-code pnl_r column
-def _color_pnl(val):
+
+def _color_money(val):
     if val == "" or val is None:
         return ""
     try:
         v = float(val)
-        if v > 0:
-            return "color: #00C896"
-        if v < 0:
-            return "color: #F4664A"
+        if v > 0:  return "color: #00C896; font-weight:600"
+        if v < 0:  return "color: #F4664A; font-weight:600"
     except (TypeError, ValueError):
         pass
     return ""
 
+
+def _fmt(v, decimals=2):
+    if v == "" or v is None:
+        return ""
+    try:
+        return f"{float(v):.{decimals}f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
 styled = (
     df_display.style
-    .map(_color_pnl, subset=["pnl_r"])
-    .format(
-        {
-            "Entry": "{:.2f}",
-            "SL":    "{:.2f}",
-            "T1":    "{:.2f}",
-            "T2":    "{:.2f}",
-            "R:R":   "{:.2f}",
-            "Exit":  lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else v,
-            "pnl_r": lambda v: f"{v:+.2f}R" if isinstance(v, (int, float)) else v,
-        }
-    )
+    .map(_color_money, subset=["Gross R", "Net P&L ₹", "Net R"])
+    .format({
+        "Entry ₹": "{:.2f}", "SL ₹": "{:.2f}", "T1 ₹": "{:.2f}",
+        "T2 ₹":   "{:.2f}", "R:R":  "{:.2f}",
+        "Exit ₹":    lambda v: _fmt(v),
+        "Gross R":   lambda v: f"{float(v):+.2f}R" if v != "" else "",
+        "Cost ₹":    lambda v: f"₹{float(v):.2f}" if v != "" else "",
+        "Net P&L ₹": lambda v: f"₹{float(v):+,.2f}" if v != "" else "",
+        "Net R":     lambda v: f"{float(v):+.2f}R" if v != "" else "",
+    })
 )
-st.dataframe(styled, use_container_width=True, height=500)
+st.dataframe(styled, use_container_width=True, height=520)
+
+# ── Cost breakdown expander ────────────────────────────────────────────────────
+with st.expander("Cost Methodology"):
+    st.markdown(f"""
+**Transaction cost model** *(NSE equity, discount broker — ₹{position_size:,} position)*
+
+| Charge | Intraday | Swing/Delivery |
+|--------|----------|----------------|
+| Brokerage | ₹20/order × 2 legs | ₹20/order × 2 legs |
+| STT | 0.025% of sell value | 0.1% of total turnover |
+| Exchange (NSE) | 0.00345% of turnover | 0.00345% of turnover |
+| Stamp Duty | 0.003% of buy value | 0.015% of buy value |
+| SEBI Charges | 0.0001% of turnover | 0.0001% of turnover |
+| GST | 18% on broker+exchange+SEBI | 18% on broker+exchange+SEBI |
+
+*All cost figures scale linearly with position size. Adjust in the sidebar.*
+""")
 
 # ── Download ───────────────────────────────────────────────────────────────────
 csv = df_display.to_csv(index=False).encode("utf-8")
@@ -261,5 +319,6 @@ st.download_button(
 st.divider()
 st.caption(
     "Outcomes are resolved automatically at 4:30 PM IST each trading day. "
-    "Use **Force Resolve** in the sidebar to refresh manually at any time."
+    "Intraday positions are always squared off at 3:30 PM close if no target/stop fires. "
+    "Use **Force Resolve** in the sidebar to refresh manually."
 )
