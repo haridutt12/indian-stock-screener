@@ -13,14 +13,6 @@ from ui.components import news_item, sector_sentiment_bar
 st.set_page_config(page_title="News & Sentiment", layout="wide", page_icon="📰")
 st.title("📰 News & Market Sentiment")
 
-if not has_api_key():
-    st.info(
-        "ℹ️ **Running free VADER sentiment engine** — keyword & rule-based analysis, "
-        "no API key required. For deeper AI-powered insights, add an "
-        "`ANTHROPIC_API_KEY` in Streamlit Cloud → App Settings → Secrets."
-    )
-else:
-    st.caption(f"Engine: {get_engine_name()}")
 
 # ── FETCH NEWS ─────────────────────────────────────────────────────────────────
 with st.spinner("Fetching latest market news..."):
