@@ -75,6 +75,23 @@ with st.sidebar:
             st.success(f"Resolved {n} signal(s).")
             st.rerun()
 
+    st.divider()
+    st.subheader("Telegram")
+    if st.button("📨 Send Test Message", help="Send a test alert to @NSEStockSignals"):
+        from notifications.telegram import send_message, is_configured
+        if not is_configured():
+            st.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set in secrets.")
+        else:
+            ok = send_message(
+                "✅ <b>Test message from NSE Stock Screener</b>\n\n"
+                "Telegram alerts are working correctly.\n"
+                "You will receive swing + intraday signals every trading day."
+            )
+            if ok:
+                st.success("Message sent to @NSEStockSignals!")
+            else:
+                st.error("Failed — check logs.")
+
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
 perf = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
