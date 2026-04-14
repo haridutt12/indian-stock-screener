@@ -78,16 +78,59 @@ with st.sidebar:
     st.divider()
     st.subheader("📣 Telegram")
     if st.button("📊 Send Market Update Now", use_container_width=True):
-        with st.spinner("Fetching live data…"):
+        import requests as _req
+        token   = __import__("os").getenv("TELEGRAM_BOT_TOKEN", "")
+        channel = __import__("os").getenv("TELEGRAM_CHANNEL_ID", "")
+
+        if not token or not channel:
+            st.error("Secrets not set: TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL_ID")
+        else:
+            # Step 1 — build message from available data
+            from datetime import datetime
+            import pytz
+            now = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d %b %Y %H:%M IST")
+            lines = [f"📊 <b>NSE Live Market Update</b>\n🕐 {now}\n"]
+
+            # Indices
             try:
-                from scheduler.jobs import _send_market_update
-                ok = _send_market_update("Live Market Update")
-                if ok:
-                    st.success("✅ Sent to @NSEStockSignals!")
-                else:
-                    st.error("Telegram API returned failure — check bot token/channel in secrets.")
+                from data.fetcher import fetch_index_data
+                from config.settings import INDICES
+                for name, ticker in list(INDICES.items())[:3]:
+                    df = fetch_index_data(ticker, period="5d", interval="1d")
+                    if df is not None and len(df) >= 2:
+                        price  = float(df["Close"].iloc[-1])
+                        chg    = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+                        arrow  = "🟢" if chg >= 0 else "🔴"
+                        lines.append(f"{arrow} <b>{name}</b>: {price:,.0f} ({chg:+.2f}%)")
             except Exception as e:
-                st.error(f"Error: {e}")
+                lines.append(f"(Index data unavailable: {e})")
+
+            # Top news
+            try:
+                from data.news_fetcher import fetch_market_news
+                news = fetch_market_news(use_cache=True)
+                if news:
+                    lines.append("\n📰 <b>Latest News:</b>")
+                    for n in news[:3]:
+                        lines.append(f"  • {(n.get('title',''))[:65]}")
+            except Exception as e:
+                lines.append(f"(News unavailable: {e})")
+
+            lines.append(f"\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>")
+            msg = "\n".join(lines)
+
+            # Step 2 — send
+            url  = f"https://api.telegram.org/bot{token}/sendMessage"
+            resp = _req.post(url, json={
+                "chat_id": channel, "text": msg,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }, timeout=15)
+
+            if resp.status_code == 200:
+                st.success("✅ Sent to @NSEStockSignals!")
+            else:
+                st.error(f"Telegram error {resp.status_code}: {resp.text}")
 
     st.divider()
     st.subheader("Telegram")
