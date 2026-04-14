@@ -76,6 +76,17 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+    st.subheader("📣 Telegram")
+    if st.button("📊 Send Market Update Now", use_container_width=True):
+        with st.spinner("Fetching live data…"):
+            try:
+                from scheduler.jobs import _send_market_update
+                _send_market_update("Live Market Update")
+                st.success("✅ Sent to @NSEStockSignals!")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+    st.divider()
     st.subheader("Telegram")
     if st.button("📨 Send Test Message", help="Send a test alert to @NSEStockSignals"):
         from notifications.telegram import send_message, is_configured
