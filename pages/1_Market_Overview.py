@@ -22,7 +22,8 @@ st.title("📊 Market Overview — Indian Markets")
 
 # Market status banner
 status = market_status()
-status_color = "#26a69a" if status["is_market_open"] else "#ef5350"
+is_holiday = not status["is_trading_day"]
+status_color = "#26a69a" if status["is_market_open"] else ("#888" if is_holiday else "#ef5350")
 st.markdown(
     f'<div style="background:{status_color}22; border-left: 4px solid {status_color}; '
     f'padding: 8px 16px; border-radius: 4px; margin-bottom: 16px;">'
@@ -30,6 +31,12 @@ st.markdown(
     f'</div>',
     unsafe_allow_html=True,
 )
+if is_holiday:
+    st.info(
+        "Today is a market holiday. All figures below reflect the **previous trading day's close**. "
+        "No intraday data is available.",
+        icon="🏖️",
+    )
 
 # ── MAJOR INDICES ──────────────────────────────────────────────────────────────
 st.subheader("Major Indices")
@@ -43,8 +50,11 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
             curr = df["Close"].iloc[-1]
             prev = df["Close"].iloc[-2]
             chg = (curr - prev) / prev * 100
+            as_of = df.index[-1]
+            as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
             with st.container():
                 index_metric_card(name, curr, chg)
+                st.caption(f"As of {as_of_str}")
                 fig = index_line_chart(df.tail(90), name)
                 st.plotly_chart(fig, width="stretch", key=f"idx_{ticker}")
         else:
@@ -65,7 +75,9 @@ for i, (name, ticker) in enumerate(sector_indices.items()):
         curr = df["Close"].iloc[-1]
         prev = df["Close"].iloc[-2]
         chg = (curr - prev) / prev * 100
-        sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr)})
+        as_of = df.index[-1]
+        as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
+        sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr), "as_of": as_of_str})
         with s_cols[i % 4]:
             arrow = "▲" if chg >= 0 else "▼"
             color = "#26a69a" if chg >= 0 else "#ef5350"

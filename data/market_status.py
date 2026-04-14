@@ -30,9 +30,18 @@ NSE_HOLIDAYS_2025 = {
 
 NSE_HOLIDAYS_2026 = {
     date(2026, 1, 26),   # Republic Day
-    date(2026, 3, 19),   # Holi (tentative)
-    date(2026, 4, 3),    # Good Friday (tentative)
+    date(2026, 2, 26),   # Mahashivratri
+    date(2026, 3, 19),   # Holi
+    date(2026, 3, 31),   # Id-Ul-Fitr (Ramadan Eid)
+    date(2026, 4, 3),    # Good Friday
+    date(2026, 4, 14),   # Dr. Ambedkar Jayanti
+    date(2026, 5, 1),    # Maharashtra Day
     date(2026, 8, 15),   # Independence Day
+    date(2026, 8, 23),   # Ganesh Chaturthi
+    date(2026, 10, 2),   # Gandhi Jayanti
+    date(2026, 10, 20),  # Diwali Laxmi Puja (tentative)
+    date(2026, 10, 21),  # Diwali Balipratipada (tentative)
+    date(2026, 11, 5),   # Guru Nanak Jayanti (tentative)
     date(2026, 12, 25),  # Christmas
 }
 
