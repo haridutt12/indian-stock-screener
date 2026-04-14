@@ -27,6 +27,8 @@ End-of-day rules
 Transaction costs are computed for every resolved trade and stored alongside
 the outcome so the dashboard shows realistic net P&L.
 """
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
 from typing import Optional

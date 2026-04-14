@@ -7,6 +7,8 @@ calls for the same signal on the same trading day are silently skipped.
 Outcomes are updated by outcome_tracker.py after market close.
 Cost/P&L columns are populated at resolution time by compute_trade_cost().
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
