@@ -10,19 +10,30 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from signals.signal_logger import (
-    get_signal_logger,
-    OUTCOME_OPEN,
-    OUTCOME_TARGET1,
-    OUTCOME_TARGET2,
-    OUTCOME_STOPPED,
-    OUTCOME_SQUARED_OFF,
-    OUTCOME_EXPIRED,
-)
-from signals.trade_costs import DEFAULT_POSITION_SIZE_INR
+try:
+    from signals.signal_logger import (
+        get_signal_logger,
+        OUTCOME_OPEN,
+        OUTCOME_TARGET1,
+        OUTCOME_TARGET2,
+        OUTCOME_STOPPED,
+        OUTCOME_SQUARED_OFF,
+        OUTCOME_EXPIRED,
+    )
+    from signals.trade_costs import DEFAULT_POSITION_SIZE_INR
+    _import_error = None
+except Exception as _exc:
+    import traceback as _tb
+    _import_error = _tb.format_exc()
 
 st.set_page_config(page_title="Signal Log", layout="wide", page_icon="📋")
 st.title("📋 Signal Log & Backtesting")
+
+# Surface any import error with the full traceback so it is visible on screen
+if _import_error:
+    st.error("**Import failed — full traceback below (share this with support):**")
+    st.code(_import_error, language="python")
+    st.stop()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
