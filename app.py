@@ -66,6 +66,14 @@ def _catchup_signals():
 
 
 _start_scheduler()
+
+# Remove any signals that were accidentally logged on holidays or weekends
+try:
+    from signals.signal_logger import get_signal_logger
+    get_signal_logger().purge_non_trading_day_signals()
+except Exception:
+    pass
+
 _catchup_signals()
 
 st.set_page_config(

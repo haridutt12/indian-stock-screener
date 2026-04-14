@@ -279,6 +279,37 @@ class SignalLogger:
 
     # ── Read ───────────────────────────────────────────────────────────────────
 
+    def purge_non_trading_day_signals(self) -> int:
+        """
+        Delete any signals whose signal_date falls on a weekend or NSE holiday.
+        Returns the number of rows deleted.
+        """
+        from data.market_status import ALL_HOLIDAYS
+        from datetime import date, datetime
+        deleted = 0
+        try:
+            with self._connect() as conn:
+                dates = conn.execute(
+                    "SELECT DISTINCT signal_date FROM signal_log"
+                ).fetchall()
+                for row in dates:
+                    d_str = row[0]
+                    try:
+                        d = datetime.strptime(d_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    if d.weekday() >= 5 or d in ALL_HOLIDAYS:
+                        result = conn.execute(
+                            "DELETE FROM signal_log WHERE signal_date=?", (d_str,)
+                        )
+                        deleted += result.rowcount
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"purge_non_trading_day_signals failed: {exc}")
+        if deleted:
+            logger.info(f"Purged {deleted} signal(s) from non-trading days.")
+        return deleted
+
     def get_open_signals(self) -> list[dict]:
         """Return all signals still awaiting outcome resolution."""
         with self._connect() as conn:
