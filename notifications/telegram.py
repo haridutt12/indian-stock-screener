@@ -1,0 +1,188 @@
+"""
+Telegram notification integration.
+Sends signal alerts and morning briefings to a Telegram channel.
+
+Required environment variables (set in Streamlit Cloud Secrets):
+    TELEGRAM_BOT_TOKEN  — from @BotFather
+    TELEGRAM_CHANNEL_ID — e.g. @NSEStockSignals
+"""
+import os
+import logging
+import requests
+from datetime import datetime
+import pytz
+
+logger = logging.getLogger(__name__)
+IST = pytz.timezone("Asia/Kolkata")
+
+TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
+
+
+def _get_config():
+    token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    channel = os.getenv("TELEGRAM_CHANNEL_ID", "")
+    return token, channel
+
+
+def is_configured() -> bool:
+    token, channel = _get_config()
+    return bool(token and channel)
+
+
+def send_message(text: str, parse_mode: str = "HTML") -> bool:
+    """Send a message to the configured channel. Returns True on success."""
+    token, channel = _get_config()
+    if not token or not channel:
+        logger.warning("Telegram not configured — skipping notification.")
+        return False
+    try:
+        url = TELEGRAM_API.format(token=token, method="sendMessage")
+        resp = requests.post(url, json={
+            "chat_id":    channel,
+            "text":       text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+        }, timeout=10)
+        if resp.status_code == 200:
+            return True
+        logger.error(f"Telegram API error {resp.status_code}: {resp.text[:200]}")
+        return False
+    except Exception as e:
+        logger.error(f"Telegram send_message failed: {e}")
+        return False
+
+
+# ── Message formatters ─────────────────────────────────────────────────────────
+
+def _stars(confidence: int) -> str:
+    return "★" * (confidence or 1) + "☆" * (5 - (confidence or 1))
+
+
+def _direction_emoji(direction: str) -> str:
+    return "🟢 LONG" if direction.upper() == "LONG" else "🔴 SHORT"
+
+
+def format_swing_signal(signal) -> str:
+    """Format a swing TradeSignal into a Telegram message."""
+    s = signal if isinstance(signal, dict) else signal.__dict__
+    ticker = s.get("ticker", "").replace(".NS", "")
+    now    = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+
+    return (
+        f"📈 <b>SWING SIGNAL — {ticker}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Strategy:  {s.get('strategy', '')}\n"
+        f"Direction: {_direction_emoji(s.get('direction', 'LONG'))}\n"
+        f"Confidence: {_stars(s.get('confidence', 3))}\n\n"
+        f"Entry:  ₹{s.get('entry_price', 0):,.2f}\n"
+        f"SL:     ₹{s.get('stop_loss', 0):,.2f}  "
+        f"(<b>{s.get('stop_loss_pct', 0):.1f}%</b>)\n"
+        f"T1:     ₹{s.get('target_1', 0):,.2f}  "
+        f"(+{s.get('target_1_pct', 0):.1f}%)\n"
+        f"T2:     ₹{s.get('target_2', 0):,.2f}  "
+        f"(+{s.get('target_2_pct', 0):.1f}%)\n"
+        f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
+        f"🕐 {now}"
+    )
+
+
+def format_intraday_signal(signal) -> str:
+    """Format an intraday TradeSignal into a Telegram message."""
+    s = signal if isinstance(signal, dict) else signal.__dict__
+    ticker = s.get("ticker", "").replace(".NS", "")
+    now    = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+
+    return (
+        f"⚡ <b>INTRADAY SIGNAL — {ticker}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Strategy:  {s.get('strategy', '')}\n"
+        f"Direction: {_direction_emoji(s.get('direction', 'LONG'))}\n"
+        f"Confidence: {_stars(s.get('confidence', 3))}\n\n"
+        f"Entry:  ₹{s.get('entry_price', 0):,.2f}\n"
+        f"SL:     ₹{s.get('stop_loss', 0):,.2f}  "
+        f"(<b>{s.get('stop_loss_pct', 0):.1f}%</b>)\n"
+        f"T1:     ₹{s.get('target_1', 0):,.2f}  "
+        f"(+{s.get('target_1_pct', 0):.1f}%)\n"
+        f"T2:     ₹{s.get('target_2', 0):,.2f}  "
+        f"(+{s.get('target_2_pct', 0):.1f}%)\n"
+        f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
+        f"⚠️ Square off by <b>3:30 PM IST</b>\n"
+        f"🕐 {now}"
+    )
+
+
+def format_morning_briefing(sentiment: dict, swing_count: int, intraday_count: int) -> str:
+    """Format the 8:45 AM morning briefing message."""
+    now  = datetime.now(IST)
+    date = now.strftime("%A, %d %b %Y")
+
+    score = sentiment.get("overall_sentiment", 5)
+    label = sentiment.get("sentiment_label", "Neutral")
+    emoji = (
+        "🟢" if score >= 7 else
+        "🟡" if score >= 4 else
+        "🔴"
+    )
+
+    themes = sentiment.get("key_themes", [])
+    themes_text = ""
+    for t in themes[:3]:
+        themes_text += f"  • {t[:60]}\n"
+
+    catalysts = sentiment.get("key_catalysts", [])
+    risks     = sentiment.get("key_risks", [])
+
+    cat_text  = "\n".join(f"  ✅ {c[:55]}" for c in catalysts[:2])
+    risk_text = "\n".join(f"  ⚠️ {r[:55]}" for r in risks[:2])
+
+    app_url = "https://eener4.streamlit.app"
+
+    msg = (
+        f"🌅 <b>NSE PRE-MARKET BRIEFING</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 {date}\n\n"
+        f"{emoji} <b>Market Sentiment:</b> {label} ({score}/10)\n\n"
+    )
+    if themes_text:
+        msg += f"🔑 <b>Key Themes:</b>\n{themes_text}\n"
+    if cat_text:
+        msg += f"<b>Catalysts:</b>\n{cat_text}\n\n"
+    if risk_text:
+        msg += f"<b>Risks:</b>\n{risk_text}\n\n"
+
+    msg += (
+        f"📈 Swing signals today:   <b>{swing_count}</b>\n"
+        f"⚡ Intraday signals today: <b>{intraday_count}</b>\n\n"
+        f"🔗 <a href='{app_url}'>Open Screener App</a>"
+    )
+    return msg
+
+
+def notify_swing_signals(signals: list) -> int:
+    """Send alerts for a list of swing signals. Returns count sent."""
+    if not is_configured() or not signals:
+        return 0
+    sent = 0
+    for s in signals:
+        try:
+            msg = format_swing_signal(s)
+            if send_message(msg):
+                sent += 1
+        except Exception as e:
+            logger.error(f"Failed to send swing signal alert: {e}")
+    return sent
+
+
+def notify_intraday_signals(signals: list) -> int:
+    """Send alerts for a list of intraday signals. Returns count sent."""
+    if not is_configured() or not signals:
+        return 0
+    sent = 0
+    for s in signals:
+        try:
+            msg = format_intraday_signal(s)
+            if send_message(msg):
+                sent += 1
+        except Exception as e:
+            logger.error(f"Failed to send intraday signal alert: {e}")
+    return sent

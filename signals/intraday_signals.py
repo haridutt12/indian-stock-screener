@@ -206,6 +206,12 @@ def generate_intraday_signals(
         if is_trading_day():
             from signals.signal_logger import get_signal_logger
             get_signal_logger().log_signals(signals)
+            # Telegram alerts
+            try:
+                from notifications.telegram import notify_intraday_signals
+                notify_intraday_signals(signals)
+            except Exception as te:
+                logger.warning(f"Telegram intraday alert failed: {te}")
     except Exception as e:
         logger.warning(f"Signal logging failed (intraday): {e}")
 

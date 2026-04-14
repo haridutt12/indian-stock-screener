@@ -33,7 +33,7 @@ def run_intraday_signal_scan():
 
 
 def run_pre_market_scan():
-    """8:45 AM IST — Fetch news, run sentiment, generate swing signals."""
+    """8:45 AM IST — Fetch news, run sentiment, generate swing signals, send morning briefing."""
     if not is_trading_day():
         return
     logger.info(f"[{datetime.now(IST)}] Running pre-market scan...")
@@ -44,18 +44,32 @@ def run_pre_market_scan():
         from config.stock_universe import NIFTY_50
 
         news = fetch_market_news(use_cache=False)
-        if has_api_key():
-            news_text = format_news_for_claude(news, max_items=30)
-            sentiment = analyze_market_sentiment(news_text, use_cache=False)
-            sentiment_score = sentiment.get("overall_sentiment", 5) / 10
-        else:
-            sentiment_score = 0.5
+        sentiment = analyze_market_sentiment(
+            format_news_for_claude(news, max_items=30),
+            news_items=news,
+            use_cache=False,
+        )
+        sentiment_score = sentiment.get("overall_sentiment", 5) / 10
 
         tickers = list(NIFTY_50.values())
+        # generate_swing_signals already calls log_signals + notify_swing_signals internally
         signals = generate_swing_signals(tickers, sentiment_score=sentiment_score, use_cache=False)
-        # Cache results
+
         cache = get_cache()
         cache.set("pre_market:swing_signals", [s.to_dict() for s in signals], 3600 * 8)
+
+        # Morning briefing Telegram message
+        try:
+            from notifications.telegram import format_morning_briefing, send_message
+            msg = format_morning_briefing(
+                sentiment=sentiment,
+                swing_count=len(signals),
+                intraday_count=0,   # intraday job runs at 9:30
+            )
+            send_message(msg)
+        except Exception as te:
+            logger.warning(f"Morning briefing Telegram failed: {te}")
+
         logger.info(f"Pre-market scan done. {len(signals)} swing signals generated.")
     except Exception as e:
         logger.error(f"Pre-market scan failed: {e}")
