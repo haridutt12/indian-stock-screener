@@ -225,17 +225,20 @@ if is_market_open():
 
         st.markdown("---")
 
-# ── Auto-resolve intraday positions so trade journal stays in sync ─────────────
+# ── Auto-resolve open signals so trade journal stays in sync ───────────────────
+# Runs regardless of market hours so post-market / next-day loads also close
+# stale OPEN positions. During market hours: throttled to 60 s per session.
+# Outside market hours: throttled to 5 min (data doesn't change faster than that).
 import time as _time
-if is_market_open():
-    _now = _time.time()
-    if _now - st.session_state.get("_last_resolve_ts", 0) > 60:
-        try:
-            from signals.outcome_tracker import update_open_signal_outcomes
-            update_open_signal_outcomes(timeframe="INTRADAY", position_size_inr=float(position_size))
-            st.session_state["_last_resolve_ts"] = _now
-        except Exception:
-            pass
+_throttle_secs = 60 if is_market_open() else 300
+_now = _time.time()
+if _now - st.session_state.get("_last_resolve_ts", 0) > _throttle_secs:
+    try:
+        from signals.outcome_tracker import update_open_signal_outcomes
+        update_open_signal_outcomes(position_size_inr=float(position_size))  # resolves ALL open signals
+        st.session_state["_last_resolve_ts"] = _now
+    except Exception:
+        pass
 
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
