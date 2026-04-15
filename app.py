@@ -86,14 +86,14 @@ st.set_page_config(
     },
 )
 
-# Custom CSS for dark theme polish
+# Custom CSS — keep metric/typography polish but do NOT override sidebar bg
+# (overriding sidebar bg with a dark colour hides Streamlit's page navigation links)
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
     .stMetric label { font-size: 0.85rem; color: #aaa; }
     .stMetric value { font-size: 1.5rem; font-weight: bold; }
     div[data-testid="stMetricDelta"] { font-size: 0.9rem; }
-    .stSidebar { background-color: #1a1a2e; }
     h1, h2, h3 { font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
@@ -102,22 +102,22 @@ st.markdown("""
 st.title("📊 Indian Stock Market Screener")
 st.markdown("**AI-powered market analysis for NSE | Swing & Intraday Trade Ideas**")
 
-st.markdown("""
----
+st.markdown("---")
+st.subheader("Quick Navigation")
+st.caption("Click any page below — or use the sidebar on the left.")
 
-### Navigate using the sidebar:
+col1, col2 = st.columns(2)
 
-| Page | Description |
-|------|-------------|
-| 📊 **Market Overview** | Nifty 50, Bank Nifty, Sensex · Sector heatmap · Top gainers/losers |
-| 📰 **News & Sentiment** | Claude AI-powered overnight news analysis · Sector outlook |
-| 🔍 **Fundamental Screener** | Filter by PE, ROE, market cap, debt · Value/Growth picks |
-| 📈 **Technical Screener** | RSI, MACD, moving averages · Breakout/Oversold presets |
-| 💹 **Swing Trades** | 2–5 day trade ideas with entry, stop-loss & targets |
-| ⚡ **Intraday Ideas** | Live ORB & VWAP Bounce signals during market hours |
+with col1:
+    st.page_link("pages/1_Market_Overview.py",     label="📊 Market Overview",       help="Nifty 50, Bank Nifty, Sensex · Sector heatmap · Top gainers/losers")
+    st.page_link("pages/2_News_Sentiment.py",      label="📰 News & Sentiment",       help="Claude AI-powered overnight news analysis · Sector outlook")
+    st.page_link("pages/3_Fundamental_Screener.py",label="🔍 Fundamental Screener",   help="Filter by PE, ROE, market cap, debt · Value/Growth picks")
+    st.page_link("pages/4_Technical_Screener.py",  label="📈 Technical Screener",     help="RSI, MACD, moving averages · Breakout/Oversold presets")
 
----
-""")
+with col2:
+    st.page_link("pages/5_Swing_Trades.py",        label="💹 Swing Trades",           help="2–5 day trade ideas with entry, stop-loss & targets")
+    st.page_link("pages/6_Intraday_Ideas.py",      label="⚡ Intraday Ideas",          help="Live ORB & VWAP Bounce signals during market hours")
+    st.page_link("pages/7_Signal_Log.py",          label="📋 Signal Log & Backtesting",help="All past signals with outcomes, P&L and win-rate stats")
 
 st.markdown("---")
 

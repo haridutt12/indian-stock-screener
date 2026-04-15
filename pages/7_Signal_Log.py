@@ -226,19 +226,20 @@ if is_market_open():
         st.markdown("---")
 
 # ── Auto-resolve open signals so trade journal stays in sync ───────────────────
-# Runs regardless of market hours so post-market / next-day loads also close
-# stale OPEN positions. During market hours: throttled to 60 s per session.
-# Outside market hours: throttled to 5 min (data doesn't change faster than that).
+# Runs regardless of market hours so post-market / next-day visits also close
+# stale OPEN positions. Throttled to avoid hammering yfinance on every click.
 import time as _time
 _throttle_secs = 60 if is_market_open() else 300
 _now = _time.time()
 if _now - st.session_state.get("_last_resolve_ts", 0) > _throttle_secs:
     try:
         from signals.outcome_tracker import update_open_signal_outcomes
-        update_open_signal_outcomes(position_size_inr=float(position_size))  # resolves ALL open signals
+        _resolved = update_open_signal_outcomes(position_size_inr=float(position_size))
         st.session_state["_last_resolve_ts"] = _now
-    except Exception:
-        pass
+        if _resolved:
+            st.toast(f"✅ {_resolved} signal(s) resolved automatically.", icon="✅")
+    except Exception as _e:
+        st.warning(f"⚠️ Auto-resolve failed: {_e}. Use **Force Resolve** in the sidebar.")
 
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
