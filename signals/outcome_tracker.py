@@ -281,18 +281,20 @@ def _resolve_swing(signal: dict) -> Optional[dict]:
 
 def update_open_signal_outcomes(
     position_size_inr: float = DEFAULT_POSITION_SIZE_INR,
+    timeframe: str = None,
 ) -> int:
     """
-    Iterate all OPEN signals, resolve each against price data, and write
+    Iterate OPEN signals, resolve each against price data, and write
     outcome + cost breakdown back to the DB.
 
     Args:
         position_size_inr: Capital per trade for cost/P&L calculations (default ₹1L)
+        timeframe: Optional — 'INTRADAY' or 'SWING'. None resolves all open signals.
 
     Returns the number of signals resolved.
     """
     log          = get_signal_logger()
-    open_signals = log.get_open_signals()
+    open_signals = log.get_open_signals(timeframe=timeframe)
 
     if not open_signals:
         logger.info("Outcome tracker: no open signals to resolve.")

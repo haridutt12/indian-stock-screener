@@ -136,6 +136,95 @@ with st.sidebar:
 
 
 
+# ── Live intraday position monitor ────────────────────────────────────────────
+from data.market_status import is_market_open
+from datetime import date as _date
+
+if is_market_open():
+    today_str = _date.today().isoformat()
+    log_live = get_signal_logger()
+    open_intraday = [
+        s for s in log_live.get_open_signals(timeframe="INTRADAY")
+        if s.get("signal_date") == today_str
+    ]
+
+    if open_intraday:
+        st.subheader("⚡ Live Intraday Positions")
+        st.caption("Prices refresh on each page load. Use the button below to close positions that hit stop/target.")
+
+        import yfinance as yf
+
+        for sig in open_intraday:
+            ticker   = sig["ticker"]
+            entry    = sig["entry_price"]
+            stop     = sig["stop_loss"]
+            t1       = sig["target_1"]
+            t2       = sig["target_2"]
+            direction = sig["direction"]
+
+            # Fetch latest price
+            try:
+                curr_price = float(yf.Ticker(ticker).fast_info.last_price)
+            except Exception:
+                curr_price = None
+
+            col_name, col_entry, col_curr, col_pnl, col_sl, col_t1, col_status = st.columns([2,1,1,1,1,1,2])
+            col_name.markdown(f"**{ticker.replace('.NS','')}**  \n{sig.get('strategy','')}")
+            col_entry.metric("Entry", f"₹{entry:,.2f}")
+
+            if curr_price is not None:
+                pnl_pct = (curr_price - entry) / entry * 100 if direction == "LONG" else (entry - curr_price) / entry * 100
+                col_curr.metric("Current", f"₹{curr_price:,.2f}", f"{pnl_pct:+.2f}%")
+                col_pnl.metric("P&L", f"{pnl_pct:+.2f}%")
+
+                # Distance to stop and T1
+                dist_stop = abs(curr_price - stop) / entry * 100
+                dist_t1   = abs(t1 - curr_price) / entry * 100
+
+                col_sl.metric("SL", f"₹{stop:,.2f}", f"{dist_stop:.1f}% away", delta_color="inverse")
+                col_t1.metric("T1", f"₹{t1:,.2f}", f"{dist_t1:.1f}% away")
+
+                # Status badge
+                if direction == "LONG":
+                    if curr_price <= stop:
+                        status_html = '<span style="color:#ef5350;font-weight:bold">🔴 STOPPED</span>'
+                    elif curr_price >= t2:
+                        status_html = '<span style="color:#26a69a;font-weight:bold">🎯 T2 HIT</span>'
+                    elif curr_price >= t1:
+                        status_html = '<span style="color:#26a69a;font-weight:bold">✅ T1 HIT</span>'
+                    elif dist_stop < 0.5:
+                        status_html = '<span style="color:#ff9800;font-weight:bold">⚠️ Near SL</span>'
+                    else:
+                        status_html = '<span style="color:#aaa">🟡 Active</span>'
+                else:  # SHORT
+                    if curr_price >= stop:
+                        status_html = '<span style="color:#ef5350;font-weight:bold">🔴 STOPPED</span>'
+                    elif curr_price <= t2:
+                        status_html = '<span style="color:#26a69a;font-weight:bold">🎯 T2 HIT</span>'
+                    elif curr_price <= t1:
+                        status_html = '<span style="color:#26a69a;font-weight:bold">✅ T1 HIT</span>'
+                    elif dist_stop < 0.5:
+                        status_html = '<span style="color:#ff9800;font-weight:bold">⚠️ Near SL</span>'
+                    else:
+                        status_html = '<span style="color:#aaa">🟡 Active</span>'
+
+                col_status.markdown(status_html, unsafe_allow_html=True)
+            else:
+                col_curr.metric("Current", "N/A")
+                col_sl.metric("SL", f"₹{stop:,.2f}")
+                col_t1.metric("T1", f"₹{t1:,.2f}")
+                col_status.markdown("—")
+
+            st.divider()
+
+        if st.button("🔄 Resolve Closed Positions Now", type="primary"):
+            from signals.outcome_tracker import update_open_signal_outcomes
+            n = update_open_signal_outcomes(timeframe="INTRADAY", position_size_inr=float(position_size))
+            st.success(f"Resolved {n} position(s).")
+            st.rerun()
+
+        st.markdown("---")
+
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
 perf = log.get_performance_summary(timeframe=timeframe, days_back=days_back)

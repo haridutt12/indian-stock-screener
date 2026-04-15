@@ -133,7 +133,7 @@ def run_closing_update():
 
 
 def run_intraday_refresh():
-    """Every 5 min during 9:15–15:30 IST — Refresh prices and intraday signals."""
+    """Every 5 min during 9:15–15:30 IST — Refresh prices and check open intraday positions."""
     if not is_trading_day():
         return
     logger.info(f"[{datetime.now(IST)}] Running intraday refresh...")
@@ -145,6 +145,15 @@ def run_intraday_refresh():
         logger.info("Intraday cache invalidated.")
     except Exception as e:
         logger.error(f"Intraday refresh failed: {e}")
+
+    # Check open intraday positions for stop/target hits on every refresh
+    try:
+        from signals.outcome_tracker import update_open_signal_outcomes
+        resolved = update_open_signal_outcomes(timeframe="INTRADAY")
+        if resolved:
+            logger.info(f"Intraday position check: {resolved} position(s) closed.")
+    except Exception as e:
+        logger.error(f"Intraday position check failed: {e}")
 
 
 def run_post_market_scan():

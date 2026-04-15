@@ -310,13 +310,23 @@ class SignalLogger:
             logger.info(f"Purged {deleted} signal(s) from non-trading days.")
         return deleted
 
-    def get_open_signals(self) -> list[dict]:
-        """Return all signals still awaiting outcome resolution."""
+    def get_open_signals(self, timeframe: Optional[str] = None) -> list[dict]:
+        """Return all signals still awaiting outcome resolution.
+
+        Args:
+            timeframe: Optional filter — 'INTRADAY' or 'SWING'. None returns all.
+        """
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM signal_log WHERE outcome=? ORDER BY logged_at ASC",
-                (OUTCOME_OPEN,),
-            ).fetchall()
+            if timeframe:
+                rows = conn.execute(
+                    "SELECT * FROM signal_log WHERE outcome=? AND timeframe=? ORDER BY logged_at ASC",
+                    (OUTCOME_OPEN, timeframe),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM signal_log WHERE outcome=? ORDER BY logged_at ASC",
+                    (OUTCOME_OPEN,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def get_signals(
