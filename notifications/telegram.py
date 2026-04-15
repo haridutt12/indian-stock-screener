@@ -69,19 +69,24 @@ def format_swing_signal(signal) -> str:
     ticker = s.get("ticker", "").replace(".NS", "")
     now    = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
 
+    entry = float(s.get('entry_price') or s.get('entry') or 0)
+    stop  = float(s.get('stop_loss', 0))
+    t1    = float(s.get('target_1', 0))
+    t2    = float(s.get('target_2', 0))
+    sl_pct = abs(entry - stop) / entry * 100 if entry else 0
+    t1_pct = abs(t1 - entry) / entry * 100 if entry else 0
+    t2_pct = abs(t2 - entry) / entry * 100 if entry else 0
+
     return (
         f"📈 <b>SWING SIGNAL — {ticker}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Strategy:  {s.get('strategy', '')}\n"
         f"Direction: {_direction_emoji(s.get('direction', 'LONG'))}\n"
         f"Confidence: {_stars(s.get('confidence', 3))}\n\n"
-        f"Entry:  ₹{s.get('entry_price', 0):,.2f}\n"
-        f"SL:     ₹{s.get('stop_loss', 0):,.2f}  "
-        f"(<b>{s.get('stop_loss_pct', 0):.1f}%</b>)\n"
-        f"T1:     ₹{s.get('target_1', 0):,.2f}  "
-        f"(+{s.get('target_1_pct', 0):.1f}%)\n"
-        f"T2:     ₹{s.get('target_2', 0):,.2f}  "
-        f"(+{s.get('target_2_pct', 0):.1f}%)\n"
+        f"Entry:  ₹{entry:,.2f}\n"
+        f"SL:     ₹{stop:,.2f}  (<b>{sl_pct:.1f}%</b>)\n"
+        f"T1:     ₹{t1:,.2f}  (+{t1_pct:.1f}%)\n"
+        f"T2:     ₹{t2:,.2f}  (+{t2_pct:.1f}%)\n"
         f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
         f"🕐 {now}"
     )
@@ -93,19 +98,24 @@ def format_intraday_signal(signal) -> str:
     ticker = s.get("ticker", "").replace(".NS", "")
     now    = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
 
+    entry = float(s.get('entry_price') or s.get('entry') or 0)
+    stop  = float(s.get('stop_loss', 0))
+    t1    = float(s.get('target_1', 0))
+    t2    = float(s.get('target_2', 0))
+    sl_pct = abs(entry - stop) / entry * 100 if entry else 0
+    t1_pct = abs(t1 - entry) / entry * 100 if entry else 0
+    t2_pct = abs(t2 - entry) / entry * 100 if entry else 0
+
     return (
         f"⚡ <b>INTRADAY SIGNAL — {ticker}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Strategy:  {s.get('strategy', '')}\n"
         f"Direction: {_direction_emoji(s.get('direction', 'LONG'))}\n"
         f"Confidence: {_stars(s.get('confidence', 3))}\n\n"
-        f"Entry:  ₹{s.get('entry_price', 0):,.2f}\n"
-        f"SL:     ₹{s.get('stop_loss', 0):,.2f}  "
-        f"(<b>{s.get('stop_loss_pct', 0):.1f}%</b>)\n"
-        f"T1:     ₹{s.get('target_1', 0):,.2f}  "
-        f"(+{s.get('target_1_pct', 0):.1f}%)\n"
-        f"T2:     ₹{s.get('target_2', 0):,.2f}  "
-        f"(+{s.get('target_2_pct', 0):.1f}%)\n"
+        f"Entry:  ₹{entry:,.2f}\n"
+        f"SL:     ₹{stop:,.2f}  (<b>{sl_pct:.1f}%</b>)\n"
+        f"T1:     ₹{t1:,.2f}  (+{t1_pct:.1f}%)\n"
+        f"T2:     ₹{t2:,.2f}  (+{t2_pct:.1f}%)\n"
         f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
         f"⚠️ Square off by <b>3:30 PM IST</b>\n"
         f"🕐 {now}"
