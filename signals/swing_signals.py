@@ -116,10 +116,26 @@ def _compute_swing_signal(
         return None
 
     # Confidence scoring (1-5)
-    tech_score = summary.get("strength", 50) / 100
+    # For Oversold Reversal the strength score reads bearish by design —
+    # use a neutral floor so oversold setups aren't unfairly penalised.
+    raw_strength = summary.get("strength", 50)
+    if strategy == "Oversold Reversal":
+        raw_strength = max(raw_strength, 50)   # floor at neutral
+    tech_score = raw_strength / 100
+
     fund_composite = fund_scores.get("composite_score", 0.5)
     conf_raw = (tech_score * 0.5 + fund_composite * 0.35 + sentiment_score * 0.15)
-    confidence = max(1, min(5, round(conf_raw * 5)))
+
+    # Map [0.25 → 0.75] to [2 → 4] so most passing signals land at 2–4 stars.
+    # Only truly exceptional setups reach 5.
+    if conf_raw >= 0.75:
+        confidence = 5
+    elif conf_raw >= 0.60:
+        confidence = 4
+    elif conf_raw >= 0.45:
+        confidence = 3
+    else:
+        confidence = 2
 
     # Build reasoning
     reasoning_parts = [

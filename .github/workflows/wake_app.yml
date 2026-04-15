@@ -10,6 +10,8 @@ name: Wake Streamlit App (Scheduled Jobs)
 # 9:30 AM  Intraday scan  → 3:55 AM UTC
 # 12:00 PM Mid-day update → 6:25 AM UTC
 # 3:35 PM  Closing update → 10:00 AM UTC
+# 4:00 PM  Post-market    → 10:25 AM UTC
+# 4:30 PM  Outcome tracker→ 10:55 AM UTC
 
 on:
   schedule:
@@ -17,6 +19,8 @@ on:
     - cron: '55 3 * * 1-5'   # Mon-Fri 9:25 AM IST
     - cron: '25 6 * * 1-5'   # Mon-Fri 11:55 AM IST
     - cron: '0 10 * * 1-5'   # Mon-Fri 3:30 PM IST
+    - cron: '25 10 * * 1-5'  # Mon-Fri 3:55 PM IST  → 4:00 PM post-market scan
+    - cron: '55 10 * * 1-5'  # Mon-Fri 4:25 PM IST  → 4:30 PM outcome tracker
 
 jobs:
   wake:
