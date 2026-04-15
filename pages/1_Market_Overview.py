@@ -8,14 +8,28 @@ Page 1: Market Overview
 """
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers
 from data.market_status import market_status, is_market_open
-from analysis.technical import compute_indicators
 from ui.charts import index_line_chart, sector_heatmap, market_breadth_gauge
 from ui.components import index_metric_card
-from ui.formatters import format_pct
 from config.settings import INDICES
-from config.stock_universe import NIFTY_50, get_universe_tickers
+from config.stock_universe import NIFTY_50
+
+
+def _live_quote(ticker: str) -> dict:
+    """Fetch latest price + change vs prev close via fast_info. Returns {} on failure."""
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        price = float(fi.last_price)
+        prev  = float(fi.previous_close)
+        return {
+            "price": price,
+            "change_pct": (price - prev) / prev * 100,
+        }
+    except Exception:
+        return {}
+
 
 st.set_page_config(page_title="Market Overview", layout="wide", page_icon="📊")
 st.title("📊 Market Overview — Indian Markets")
@@ -51,10 +65,9 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
         df = fetch_index_data(ticker, period="5d", interval="1d")
         if df is not None and len(df) >= 2:
             if live:
-                from data.fetcher import fetch_live_quote
-                quote = fetch_live_quote(ticker)
-                curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
-                chg  = quote.get("change_pct", 0.0) if quote else 0.0
+                quote = _live_quote(ticker)
+                curr = quote.get("price", float(df["Close"].iloc[-1]))
+                chg  = quote.get("change_pct", 0.0)
                 as_of_str = "Live"
             else:
                 curr = float(df["Close"].iloc[-1])
@@ -83,10 +96,9 @@ for i, (name, ticker) in enumerate(sector_indices.items()):
     df = fetch_index_data(ticker, period="5d", interval="1d")
     if df is not None and len(df) >= 2:
         if live:
-            from data.fetcher import fetch_live_quote
-            quote = fetch_live_quote(ticker)
-            curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
-            chg  = quote.get("change_pct", 0.0) if quote else 0.0
+            quote = _live_quote(ticker)
+            curr = quote.get("price", float(df["Close"].iloc[-1]))
+            chg  = quote.get("change_pct", 0.0)
         else:
             curr = float(df["Close"].iloc[-1])
             prev = float(df["Close"].iloc[-2])
@@ -126,9 +138,9 @@ if sector_data:
                     if df is None or df.empty:
                         continue
                     df = df.dropna(subset=["Close"])
-                    today = df.index[-1].date()
-                    today_df = df[df.index.date == today]
-                    prev_df  = df[df.index.date < today]
+                    today     = df.index[-1].date()
+                    today_df  = df[df.index.date == today]
+                    prev_df   = df[df.index.date < today]
                     if today_df.empty or prev_df.empty:
                         continue
                     chg = float(today_df["Close"].iloc[-1]) - float(prev_df["Close"].iloc[-1])
@@ -153,7 +165,34 @@ st.divider()
 # ── TOP GAINERS & LOSERS ───────────────────────────────────────────────────────
 st.subheader("Top Gainers & Losers (Nifty 50)")
 with st.spinner("Fetching movers..."):
-    movers = get_top_gainers_losers(list(NIFTY_50.values()), top_n=5)
+    if live:
+        # Use 5m intraday data vs yesterday's close for real-time movers
+        tickers = list(NIFTY_50.values())
+        price_data = fetch_stock_data(tickers, period="2d", interval="5m", use_cache=True)
+        changes = []
+        for ticker, df in price_data.items():
+            if df is None or df.empty:
+                continue
+            df = df.dropna(subset=["Close"])
+            today    = df.index[-1].date()
+            today_df = df[df.index.date == today]
+            prev_df  = df[df.index.date < today]
+            if today_df.empty or prev_df.empty:
+                continue
+            curr_close = float(today_df["Close"].iloc[-1])
+            prev_close = float(prev_df["Close"].iloc[-1])
+            pct = (curr_close - prev_close) / prev_close * 100
+            changes.append({"ticker": ticker, "price": curr_close, "change_pct": pct})
+        if changes:
+            changes_df = pd.DataFrame(changes).sort_values("change_pct", ascending=False)
+            movers = {
+                "gainers": changes_df.head(5).to_dict("records"),
+                "losers":  changes_df.tail(5).to_dict("records"),
+            }
+        else:
+            movers = get_top_gainers_losers(list(NIFTY_50.values()), top_n=5)
+    else:
+        movers = get_top_gainers_losers(list(NIFTY_50.values()), top_n=5)
 
 g_col, l_col = st.columns(2)
 with g_col:
