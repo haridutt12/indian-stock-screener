@@ -8,7 +8,7 @@ Page 1: Market Overview
 """
 import streamlit as st
 import pandas as pd
-from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers, fetch_live_quote
+from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers
 from data.market_status import market_status, is_market_open
 from analysis.technical import compute_indicators
 from ui.charts import index_line_chart, sector_heatmap, market_breadth_gauge
@@ -51,6 +51,7 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
         df = fetch_index_data(ticker, period="5d", interval="1d")
         if df is not None and len(df) >= 2:
             if live:
+                from data.fetcher import fetch_live_quote
                 quote = fetch_live_quote(ticker)
                 curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
                 chg  = quote.get("change_pct", 0.0) if quote else 0.0
@@ -82,6 +83,7 @@ for i, (name, ticker) in enumerate(sector_indices.items()):
     df = fetch_index_data(ticker, period="5d", interval="1d")
     if df is not None and len(df) >= 2:
         if live:
+            from data.fetcher import fetch_live_quote
             quote = fetch_live_quote(ticker)
             curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
             chg  = quote.get("change_pct", 0.0) if quote else 0.0
