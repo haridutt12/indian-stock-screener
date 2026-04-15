@@ -225,6 +225,18 @@ if is_market_open():
 
         st.markdown("---")
 
+# ── Auto-resolve intraday positions so trade journal stays in sync ─────────────
+import time as _time
+if is_market_open():
+    _now = _time.time()
+    if _now - st.session_state.get("_last_resolve_ts", 0) > 60:
+        try:
+            from signals.outcome_tracker import update_open_signal_outcomes
+            update_open_signal_outcomes(timeframe="INTRADAY", position_size_inr=float(position_size))
+            st.session_state["_last_resolve_ts"] = _now
+        except Exception:
+            pass
+
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
 perf = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
