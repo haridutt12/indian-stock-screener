@@ -1,0 +1,37 @@
+name: Wake Streamlit App (Scheduled Jobs)
+
+# All cron times are UTC. IST = UTC + 5:30
+# We ping the app 5 minutes BEFORE each scheduled job so APScheduler
+# has time to start up and the job fires on schedule.
+#
+# Job schedule (IST)      → Wake ping (UTC)
+# ─────────────────────────────────────────
+# 8:45 AM  Pre-market     → 3:10 AM UTC
+# 9:30 AM  Intraday scan  → 3:55 AM UTC
+# 12:00 PM Mid-day update → 6:25 AM UTC
+# 3:35 PM  Closing update → 10:00 AM UTC
+
+on:
+  schedule:
+    - cron: '10 3 * * 1-5'   # Mon-Fri 8:40 AM IST
+    - cron: '55 3 * * 1-5'   # Mon-Fri 9:25 AM IST
+    - cron: '25 6 * * 1-5'   # Mon-Fri 11:55 AM IST
+    - cron: '0 10 * * 1-5'   # Mon-Fri 3:30 PM IST
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit app to wake it up
+        run: |
+          echo "Sending wake ping to stockscreener4.streamlit.app..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10 \
+            "https://stockscreener4.streamlit.app")
+          echo "HTTP status: $STATUS"
+          # Also ping the Signal Log page to ensure scheduler starts
+          curl -s -o /dev/null --max-time 30 \
+            "https://stockscreener4.streamlit.app/Signal_Log" || true
+          echo "Wake ping complete."

@@ -182,58 +182,57 @@ def run_outcome_tracker():
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=IST)
 
+    # misfire_grace_time=1800 → job still runs if fired up to 30 min late
+    # (handles GitHub Actions delays of up to ~15 min on free tier)
+    GRACE = 1800
+
     # Pre-market: 8:45 AM IST Mon-Fri — fetch news + generate swing signals
     scheduler.add_job(
         run_pre_market_scan,
         CronTrigger(hour=8, minute=45, day_of_week="0-4", timezone=IST),
-        id="pre_market_scan",
-        replace_existing=True,
+        id="pre_market_scan", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     # Intraday signals: 9:30 AM IST Mon-Fri — after first full candle
     scheduler.add_job(
         run_intraday_signal_scan,
         CronTrigger(hour=9, minute=30, day_of_week="0-4", timezone=IST),
-        id="intraday_signal_scan",
-        replace_existing=True,
+        id="intraday_signal_scan", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     # Mid-day update: 12:00 PM IST Mon-Fri
     scheduler.add_job(
         run_midday_update,
         CronTrigger(hour=12, minute=0, day_of_week="0-4", timezone=IST),
-        id="midday_update", replace_existing=True,
+        id="midday_update", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     # Closing summary: 3:35 PM IST Mon-Fri (5 min after market close)
     scheduler.add_job(
         run_closing_update,
         CronTrigger(hour=15, minute=35, day_of_week="0-4", timezone=IST),
-        id="closing_update", replace_existing=True,
+        id="closing_update", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     # Intraday refresh: Every 5 min, 9:15–15:30 IST Mon-Fri
     scheduler.add_job(
         run_intraday_refresh,
         CronTrigger(minute="*/5", hour="9-15", day_of_week="0-4", timezone=IST),
-        id="intraday_refresh",
-        replace_existing=True,
+        id="intraday_refresh", replace_existing=True,
     )
 
     # Post-market: 4:00 PM IST Mon-Fri
     scheduler.add_job(
         run_post_market_scan,
         CronTrigger(hour=16, minute=0, day_of_week="0-4", timezone=IST),
-        id="post_market_scan",
-        replace_existing=True,
+        id="post_market_scan", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     # Outcome tracker: 4:30 PM IST Mon-Fri — resolves open signals
     scheduler.add_job(
         run_outcome_tracker,
         CronTrigger(hour=16, minute=30, day_of_week="0-4", timezone=IST),
-        id="outcome_tracker",
-        replace_existing=True,
+        id="outcome_tracker", replace_existing=True, misfire_grace_time=GRACE,
     )
 
     return scheduler
