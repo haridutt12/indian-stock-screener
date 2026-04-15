@@ -120,7 +120,7 @@ with st.sidebar:
                 except Exception:
                     pass
 
-                msg += "\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>"
+                msg += "\n🔗 <a href='https://stockscreener4.streamlit.app'>Open Screener</a>"
 
                 resp = _req.post(
                     f"https://api.telegram.org/bot{token}/sendMessage",
@@ -134,22 +134,7 @@ with st.sidebar:
                 else:
                     st.error(f"Telegram error: {resp.text}")
 
-    st.divider()
-    st.subheader("Telegram")
-    if st.button("📨 Send Test Message", help="Send a test alert to @NSEStockSignals"):
-        from notifications.telegram import send_message, is_configured
-        if not is_configured():
-            st.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set in secrets.")
-        else:
-            ok = send_message(
-                "✅ <b>Test message from NSE Stock Screener</b>\n\n"
-                "Telegram alerts are working correctly.\n"
-                "You will receive swing + intraday signals every trading day."
-            )
-            if ok:
-                st.success("Message sent to @NSEStockSignals!")
-            else:
-                st.error("Failed — check logs.")
+
 
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()

@@ -136,7 +136,7 @@ def format_morning_briefing(sentiment: dict, swing_count: int, intraday_count: i
     cat_text  = "\n".join(f"  ✅ {c[:55]}" for c in catalysts[:2])
     risk_text = "\n".join(f"  ⚠️ {r[:55]}" for r in risks[:2])
 
-    app_url = "https://eener4.streamlit.app"
+    app_url = "https://stockscreener4.streamlit.app"
 
     msg = (
         f"🌅 <b>NSE PRE-MARKET BRIEFING</b>\n"
@@ -212,7 +212,7 @@ def format_market_update(label: str, indices: dict, top_gainers: list,
     if news_lines:
         msg += f"\n📰 <b>Latest News:</b>\n{html.unescape(news_lines)}"
 
-    msg += f"\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>"
+    msg += f"\n🔗 <a href='https://stockscreener4.streamlit.app'>Open Screener</a>"
     return msg
 
 
