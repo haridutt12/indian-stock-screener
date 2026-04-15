@@ -192,19 +192,75 @@ def fetch_current_price(ticker: str) -> Optional[float]:
         return None
 
 
+def fetch_live_quote(ticker: str) -> dict:
+    """
+    Fetch the latest price + change vs previous close using fast_info.
+    Cached for 5 minutes. Works live during market hours and returns
+    the closing price outside market hours — always more up-to-date
+    than daily OHLCV data.
+
+    Returns dict with keys: price, prev_close, change, change_pct
+    Returns {} on failure.
+    """
+    cache = get_cache()
+    key = f"live:{ticker}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        price = float(fi.last_price)
+        prev = float(fi.previous_close)
+        result = {
+            "price": price,
+            "prev_close": prev,
+            "change": price - prev,
+            "change_pct": (price - prev) / prev * 100,
+        }
+        cache.set(key, result, CACHE_TTL_PRICE_INTRADAY)
+        return result
+    except Exception as e:
+        logger.warning(f"fetch_live_quote failed for {ticker}: {e}")
+        return {}
+
+
 def get_top_gainers_losers(tickers: list[str], top_n: int = 5) -> dict:
     """
     Returns top N gainers and losers from the given ticker list.
-    Uses daily data (today's change).
+    During market hours uses 5-min intraday data for live prices.
+    Outside market hours falls back to daily data.
     """
-    data = fetch_stock_data(tickers, period="5d", interval="1d")
-    changes = []
-    for ticker, df in data.items():
-        if len(df) >= 2:
-            prev_close = df["Close"].iloc[-2]
-            curr_close = df["Close"].iloc[-1]
-            pct_change = ((curr_close - prev_close) / prev_close) * 100
+    from data.market_status import is_market_open
+    if is_market_open():
+        # Use intraday 5m data: last candle = current price,
+        # previous day's last candle = previous close
+        data = fetch_stock_data(tickers, period="2d", interval="5m", use_cache=True)
+        changes = []
+        for ticker, df in data.items():
+            if df is None or df.empty:
+                continue
+            df = df.dropna(subset=["Close"])
+            today = df.index[-1].date()
+            today_df = df[df.index.date == today]
+            prev_df  = df[df.index.date < today]
+            if today_df.empty or prev_df.empty:
+                continue
+            curr_close = float(today_df["Close"].iloc[-1])
+            prev_close = float(prev_df["Close"].iloc[-1])
+            pct_change = (curr_close - prev_close) / prev_close * 100
             changes.append({"ticker": ticker, "price": curr_close, "change_pct": pct_change})
+    else:
+        data = fetch_stock_data(tickers, period="5d", interval="1d")
+        changes = []
+        for ticker, df in data.items():
+            if df is not None and len(df) >= 2:
+                prev_close = float(df["Close"].iloc[-2])
+                curr_close = float(df["Close"].iloc[-1])
+                pct_change = (curr_close - prev_close) / prev_close * 100
+                changes.append({"ticker": ticker, "price": curr_close, "change_pct": pct_change})
+
+    if not changes:
+        return {"gainers": [], "losers": []}
 
     changes_df = pd.DataFrame(changes).sort_values("change_pct", ascending=False)
     return {

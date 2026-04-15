@@ -8,8 +8,8 @@ Page 1: Market Overview
 """
 import streamlit as st
 import pandas as pd
-from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers
-from data.market_status import market_status
+from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers, fetch_live_quote
+from data.market_status import market_status, is_market_open
 from analysis.technical import compute_indicators
 from ui.charts import index_line_chart, sector_heatmap, market_breadth_gauge
 from ui.components import index_metric_card
@@ -39,7 +39,10 @@ if is_holiday:
     )
 
 # ── MAJOR INDICES ──────────────────────────────────────────────────────────────
+live = is_market_open()
 st.subheader("Major Indices")
+if live:
+    st.caption("🟢 Live prices — refreshes every 5 minutes")
 main_indices = {k: v for k, v in INDICES.items() if k in ["Nifty 50", "Bank Nifty", "Sensex"]}
 cols = st.columns(len(main_indices))
 
@@ -47,11 +50,17 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
     with col:
         df = fetch_index_data(ticker, period="5d", interval="1d")
         if df is not None and len(df) >= 2:
-            curr = df["Close"].iloc[-1]
-            prev = df["Close"].iloc[-2]
-            chg = (curr - prev) / prev * 100
-            as_of = df.index[-1]
-            as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
+            if live:
+                quote = fetch_live_quote(ticker)
+                curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
+                chg  = quote.get("change_pct", 0.0) if quote else 0.0
+                as_of_str = "Live"
+            else:
+                curr = float(df["Close"].iloc[-1])
+                prev = float(df["Close"].iloc[-2])
+                chg  = (curr - prev) / prev * 100
+                as_of = df.index[-1]
+                as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
             with st.container():
                 index_metric_card(name, curr, chg)
                 st.caption(f"As of {as_of_str}")
@@ -72,12 +81,15 @@ s_cols = st.columns(min(len(sector_indices), 4))
 for i, (name, ticker) in enumerate(sector_indices.items()):
     df = fetch_index_data(ticker, period="5d", interval="1d")
     if df is not None and len(df) >= 2:
-        curr = df["Close"].iloc[-1]
-        prev = df["Close"].iloc[-2]
-        chg = (curr - prev) / prev * 100
-        as_of = df.index[-1]
-        as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
-        sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr), "as_of": as_of_str})
+        if live:
+            quote = fetch_live_quote(ticker)
+            curr = quote.get("price", float(df["Close"].iloc[-1])) if quote else float(df["Close"].iloc[-1])
+            chg  = quote.get("change_pct", 0.0) if quote else 0.0
+        else:
+            curr = float(df["Close"].iloc[-1])
+            prev = float(df["Close"].iloc[-2])
+            chg  = (curr - prev) / prev * 100
+        sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr)})
         with s_cols[i % 4]:
             arrow = "▲" if chg >= 0 else "▼"
             color = "#26a69a" if chg >= 0 else "#ef5350"
@@ -105,15 +117,32 @@ if sector_data:
         st.subheader("Market Breadth")
         with st.spinner("Calculating breadth..."):
             tickers = list(NIFTY_50.values())
-            price_data = fetch_stock_data(tickers, period="5d", interval="1d")
             advances = declines = 0
-            for ticker, df in price_data.items():
-                if df is not None and len(df) >= 2:
-                    chg = df["Close"].iloc[-1] - df["Close"].iloc[-2]
+            if live:
+                price_data = fetch_stock_data(tickers, period="2d", interval="5m", use_cache=True)
+                for ticker, df in price_data.items():
+                    if df is None or df.empty:
+                        continue
+                    df = df.dropna(subset=["Close"])
+                    today = df.index[-1].date()
+                    today_df = df[df.index.date == today]
+                    prev_df  = df[df.index.date < today]
+                    if today_df.empty or prev_df.empty:
+                        continue
+                    chg = float(today_df["Close"].iloc[-1]) - float(prev_df["Close"].iloc[-1])
                     if chg > 0:
                         advances += 1
                     elif chg < 0:
                         declines += 1
+            else:
+                price_data = fetch_stock_data(tickers, period="5d", interval="1d")
+                for ticker, df in price_data.items():
+                    if df is not None and len(df) >= 2:
+                        chg = df["Close"].iloc[-1] - df["Close"].iloc[-2]
+                        if chg > 0:
+                            advances += 1
+                        elif chg < 0:
+                            declines += 1
         fig = market_breadth_gauge(advances, declines)
         st.plotly_chart(fig, width="stretch")
 
@@ -152,6 +181,10 @@ with l_col:
         )
 
 # Auto-refresh during market hours
+from datetime import datetime
+import pytz
+now_str = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%H:%M:%S IST")
+st.caption(f"Last updated: {now_str}")
 if status["is_market_open"]:
     st.caption("Auto-refreshing every 5 minutes during market hours.")
     st.markdown(
