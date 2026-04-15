@@ -79,58 +79,67 @@ with st.sidebar:
     st.subheader("📣 Telegram")
     if st.button("📊 Send Market Update Now", use_container_width=True):
         import requests as _req
-        token   = __import__("os").getenv("TELEGRAM_BOT_TOKEN", "")
-        channel = __import__("os").getenv("TELEGRAM_CHANNEL_ID", "")
+
+        # Read from st.secrets first, fall back to os.getenv
+        try:
+            token   = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+            channel = st.secrets.get("TELEGRAM_CHANNEL_ID", "")
+        except Exception:
+            import os
+            token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            channel = os.getenv("TELEGRAM_CHANNEL_ID", "")
+
+        st.write(f"Token loaded: `{'YES — ' + token[:8] + '...' if token else 'NO'}`")
+        st.write(f"Channel: `{channel or 'NOT SET'}`")
 
         if not token or not channel:
-            st.error("Secrets not set: TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL_ID")
+            st.error("Secrets missing. Re-check Streamlit Cloud → Settings → Secrets.")
         else:
-            # Step 1 — build message from available data
             from datetime import datetime
             import pytz
             now = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d %b %Y %H:%M IST")
-            lines = [f"📊 <b>NSE Live Market Update</b>\n🕐 {now}\n"]
 
-            # Indices
+            # Plain text — no HTML to avoid parse errors
+            msg = (
+                f"NSE Live Market Update\n"
+                f"Time: {now}\n\n"
+            )
             try:
                 from data.fetcher import fetch_index_data
                 from config.settings import INDICES
                 for name, ticker in list(INDICES.items())[:3]:
                     df = fetch_index_data(ticker, period="5d", interval="1d")
                     if df is not None and len(df) >= 2:
-                        price  = float(df["Close"].iloc[-1])
-                        chg    = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
-                        arrow  = "🟢" if chg >= 0 else "🔴"
-                        lines.append(f"{arrow} <b>{name}</b>: {price:,.0f} ({chg:+.2f}%)")
+                        price = float(df["Close"].iloc[-1])
+                        chg   = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+                        msg  += f"{'▲' if chg >= 0 else '▼'} {name}: {price:,.0f} ({chg:+.2f}%)\n"
             except Exception as e:
-                lines.append(f"(Index data unavailable: {e})")
+                msg += f"Index data error: {e}\n"
 
-            # Top news
             try:
                 from data.news_fetcher import fetch_market_news
                 news = fetch_market_news(use_cache=True)
                 if news:
-                    lines.append("\n📰 <b>Latest News:</b>")
+                    msg += "\nLatest News:\n"
                     for n in news[:3]:
-                        lines.append(f"  • {(n.get('title',''))[:65]}")
+                        msg += f"• {(n.get('title',''))[:70]}\n"
             except Exception as e:
-                lines.append(f"(News unavailable: {e})")
+                msg += f"News error: {e}\n"
 
-            lines.append(f"\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>")
-            msg = "\n".join(lines)
+            msg += "\nhttps://eener4.streamlit.app"
 
-            # Step 2 — send
             url  = f"https://api.telegram.org/bot{token}/sendMessage"
             resp = _req.post(url, json={
-                "chat_id": channel, "text": msg,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
+                "chat_id": channel,
+                "text":    msg,
             }, timeout=15)
 
+            st.write(f"Telegram API response: `{resp.status_code}` — `{resp.text[:200]}`")
+
             if resp.status_code == 200:
-                st.success("✅ Sent to @NSEStockSignals!")
+                st.success("✅ Sent! Check @NSEStockSignals")
             else:
-                st.error(f"Telegram error {resp.status_code}: {resp.text}")
+                st.error(f"Failed: {resp.text}")
 
     st.divider()
     st.subheader("Telegram")
