@@ -165,6 +165,9 @@ def _resolve_intraday(signal: dict) -> Optional[dict]:
             "pnl_r":        0.0,
         }
 
+    # Define market_close early — needed in the fallback path below
+    market_close = now_ist.replace(hour=15, minute=31, second=0, microsecond=0)
+
     # Fetch 5-min data for today
     df = fetch_single_stock(
         signal["ticker"],
@@ -173,6 +176,16 @@ def _resolve_intraday(signal: dict) -> Optional[dict]:
         use_cache=False,
     )
     if df is None or df.empty:
+        # No data available — but if market is already closed we must still square off
+        if now_ist >= market_close:
+            return {
+                "outcome":      OUTCOME_SQUARED_OFF,
+                "price":        signal["entry_price"],
+                "at":           market_close.replace(minute=30).strftime("%Y-%m-%d %H:%M:%S"),
+                "max_gain_pct": None,
+                "max_loss_pct": None,
+                "pnl_r":        0.0,
+            }
         return None
 
     # Start scanning from when the signal was logged
@@ -199,7 +212,6 @@ def _resolve_intraday(signal: dict) -> Optional[dict]:
         return result
 
     # Market closed and no trigger → MANDATORY square-off
-    market_close = now_ist.replace(hour=15, minute=31, second=0, microsecond=0)
     if now_ist >= market_close:
         last_price = float(df["Close"].iloc[-1])
         return {
@@ -236,6 +248,16 @@ def _resolve_swing(signal: dict) -> Optional[dict]:
         use_cache=True,
     )
     if df is None or df.empty:
+        # No price data — but if the signal has expired we must still close it
+        if now_ist.date() >= expiry_dt.date():
+            return {
+                "outcome":      OUTCOME_EXPIRED,
+                "price":        signal["entry_price"],
+                "at":           now_ist.strftime("%Y-%m-%d %H:%M:%S"),
+                "max_gain_pct": None,
+                "max_loss_pct": None,
+                "pnl_r":        0.0,
+            }
         return None
 
     df.index = pd.to_datetime(df.index)
