@@ -68,11 +68,17 @@ with st.sidebar:
     )
 
     st.divider()
-    if st.button("Force Resolve Open Signals", help="Run the outcome tracker now"):
-        with st.spinner("Resolving outcomes…"):
-            from signals.outcome_tracker import update_open_signal_outcomes
-            n = update_open_signal_outcomes(position_size_inr=float(position_size))
-            st.success(f"Resolved {n} signal(s).")
+    st.subheader("🔄 Resolve Outcomes")
+    st.caption("Checks every open signal against price data and marks stop/target/expiry hits.")
+    if st.button("Resolve Open Signals Now", type="primary", use_container_width=True,
+                 help="Fetches latest prices and updates all OPEN signal outcomes"):
+        with st.spinner("Fetching prices and resolving outcomes — may take 15–30 s…"):
+            try:
+                from signals.outcome_tracker import update_open_signal_outcomes
+                n = update_open_signal_outcomes(position_size_inr=float(position_size))
+                st.success(f"✅ Resolved {n} signal(s).")
+            except Exception as _e:
+                st.error(f"Error: {_e}")
             st.rerun()
 
     st.divider()
@@ -225,22 +231,6 @@ if is_market_open():
 
         st.markdown("---")
 
-# ── Auto-resolve open signals so trade journal stays in sync ───────────────────
-# Runs regardless of market hours so post-market / next-day visits also close
-# stale OPEN positions. Throttled to avoid hammering yfinance on every click.
-import time as _time
-_throttle_secs = 60 if is_market_open() else 300
-_now = _time.time()
-if _now - st.session_state.get("_last_resolve_ts", 0) > _throttle_secs:
-    try:
-        from signals.outcome_tracker import update_open_signal_outcomes
-        _resolved = update_open_signal_outcomes(position_size_inr=float(position_size))
-        st.session_state["_last_resolve_ts"] = _now
-        if _resolved:
-            st.toast(f"✅ {_resolved} signal(s) resolved automatically.", icon="✅")
-    except Exception as _e:
-        st.warning(f"⚠️ Auto-resolve failed: {_e}. Use **Force Resolve** in the sidebar.")
-
 # ── Fetch data ─────────────────────────────────────────────────────────────────
 log  = get_signal_logger()
 perf = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
@@ -382,6 +372,19 @@ if by_strat:
             "Avg Net P&L":    f"₹{s['avg_net_pnl']:+,.0f}" if s.get("avg_net_pnl") is not None else "—",
         })
     st.dataframe(pd.DataFrame(strat_rows).set_index("Strategy"), use_container_width=True)
+
+# ── Stale-open signal banner ──────────────────────────────────────────────────
+_today_iso = _date.today().isoformat()
+_stale_open = [
+    s for s in signals
+    if s["outcome"] == OUTCOME_OPEN and s["signal_date"] < _today_iso
+]
+if _stale_open:
+    st.warning(
+        f"⚠️ **{len(_stale_open)} signal(s) are still marked OPEN from past dates.** "
+        "Click **Resolve Open Signals Now** in the sidebar to fetch latest prices and update outcomes.",
+        icon="⚠️",
+    )
 
 # ── Signal history table ───────────────────────────────────────────────────────
 st.subheader(f"Trade Journal ({len(signals)} records)")
