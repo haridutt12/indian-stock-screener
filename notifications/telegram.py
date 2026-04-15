@@ -6,6 +6,7 @@ Required environment variables (set in Streamlit Cloud Secrets):
     TELEGRAM_BOT_TOKEN  — from @BotFather
     TELEGRAM_CHANNEL_ID — e.g. @NSEStockSignals
 """
+import html
 import os
 import logging
 import requests
@@ -192,8 +193,8 @@ def format_market_update(label: str, indices: dict, top_gainers: list,
 
     # News (max 3 headlines)
     news_lines = ""
-    for h in news_headlines[:3]:
-        title = (h.get("title") or "")[:65]
+    for item in news_headlines[:3]:
+        title = html.unescape((item.get("title") or ""))[:65]
         news_lines += f"  • {title}\n"
 
     msg = (
@@ -209,7 +210,7 @@ def format_market_update(label: str, indices: dict, top_gainers: list,
     if loser_lines:
         msg += f"📉 <b>Top Losers:</b>\n{loser_lines}"
     if news_lines:
-        msg += f"\n📰 <b>Latest News:</b>\n{news_lines}"
+        msg += f"\n📰 <b>Latest News:</b>\n{html.unescape(news_lines)}"
 
     msg += f"\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>"
     return msg

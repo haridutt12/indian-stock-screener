@@ -78,9 +78,7 @@ with st.sidebar:
     st.divider()
     st.subheader("📣 Telegram")
     if st.button("📊 Send Market Update Now", use_container_width=True):
-        import requests as _req
-
-        # Read from st.secrets first, fall back to os.getenv
+        import requests as _req, html as _html
         try:
             token   = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
             channel = st.secrets.get("TELEGRAM_CHANNEL_ID", "")
@@ -89,57 +87,52 @@ with st.sidebar:
             token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
             channel = os.getenv("TELEGRAM_CHANNEL_ID", "")
 
-        st.write(f"Token loaded: `{'YES — ' + token[:8] + '...' if token else 'NO'}`")
-        st.write(f"Channel: `{channel or 'NOT SET'}`")
-
         if not token or not channel:
-            st.error("Secrets missing. Re-check Streamlit Cloud → Settings → Secrets.")
+            st.error("Secrets missing — check Streamlit Cloud → Settings → Secrets.")
         else:
-            from datetime import datetime
-            import pytz
-            now = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d %b %Y %H:%M IST")
+            with st.spinner("Sending…"):
+                from datetime import datetime
+                import pytz
+                now = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d %b %Y %H:%M IST")
+                msg = f"📊 <b>NSE Live Market Update</b>\n🕐 {now}\n\n"
 
-            # Plain text — no HTML to avoid parse errors
-            msg = (
-                f"NSE Live Market Update\n"
-                f"Time: {now}\n\n"
-            )
-            try:
-                from data.fetcher import fetch_index_data
-                from config.settings import INDICES
-                for name, ticker in list(INDICES.items())[:3]:
-                    df = fetch_index_data(ticker, period="5d", interval="1d")
-                    if df is not None and len(df) >= 2:
-                        price = float(df["Close"].iloc[-1])
-                        chg   = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
-                        msg  += f"{'▲' if chg >= 0 else '▼'} {name}: {price:,.0f} ({chg:+.2f}%)\n"
-            except Exception as e:
-                msg += f"Index data error: {e}\n"
+                try:
+                    from data.fetcher import fetch_index_data
+                    from config.settings import INDICES
+                    for name, ticker in list(INDICES.items())[:3]:
+                        df = fetch_index_data(ticker, period="5d", interval="1d")
+                        if df is not None and len(df) >= 2:
+                            price = float(df["Close"].iloc[-1])
+                            chg   = (df["Close"].iloc[-1] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+                            arrow = "🟢" if chg >= 0 else "🔴"
+                            msg  += f"{arrow} <b>{name}</b>: {price:,.0f} ({chg:+.2f}%)\n"
+                except Exception:
+                    pass
 
-            try:
-                from data.news_fetcher import fetch_market_news
-                news = fetch_market_news(use_cache=True)
-                if news:
-                    msg += "\nLatest News:\n"
-                    for n in news[:3]:
-                        msg += f"• {(n.get('title',''))[:70]}\n"
-            except Exception as e:
-                msg += f"News error: {e}\n"
+                try:
+                    from data.news_fetcher import fetch_market_news
+                    news = fetch_market_news(use_cache=True)
+                    if news:
+                        msg += "\n📰 <b>Latest News:</b>\n"
+                        for n in news[:3]:
+                            title = _html.unescape(n.get("title", ""))[:70]
+                            msg  += f"• {title}\n"
+                except Exception:
+                    pass
 
-            msg += "\nhttps://eener4.streamlit.app"
+                msg += "\n🔗 <a href='https://eener4.streamlit.app'>Open Screener</a>"
 
-            url  = f"https://api.telegram.org/bot{token}/sendMessage"
-            resp = _req.post(url, json={
-                "chat_id": channel,
-                "text":    msg,
-            }, timeout=15)
-
-            st.write(f"Telegram API response: `{resp.status_code}` — `{resp.text[:200]}`")
-
-            if resp.status_code == 200:
-                st.success("✅ Sent! Check @NSEStockSignals")
-            else:
-                st.error(f"Failed: {resp.text}")
+                resp = _req.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": channel, "text": msg,
+                          "parse_mode": "HTML",
+                          "disable_web_page_preview": True},
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    st.success("✅ Sent to @NSEStockSignals!")
+                else:
+                    st.error(f"Telegram error: {resp.text}")
 
     st.divider()
     st.subheader("Telegram")
