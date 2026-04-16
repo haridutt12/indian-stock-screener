@@ -26,16 +26,27 @@ SONNET_MODEL = "claude-sonnet-4-6"
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 
+def _get_api_key() -> str:
+    """Return ANTHROPIC_API_KEY from env or Streamlit secrets."""
+    # 1. OS environment (works locally via .env / Streamlit Cloud secrets inject)
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if key:
+        return key
+    # 2. Streamlit secrets (TOML secrets panel on Streamlit Cloud)
+    try:
+        import streamlit as st
+        key = st.secrets["ANTHROPIC_API_KEY"]
+        if key:
+            return key
+    except Exception:
+        pass
+    return ""
+
+
 def _client():
     try:
         import anthropic
-        key = os.getenv("ANTHROPIC_API_KEY", "")
-        if not key:
-            try:
-                import streamlit as st
-                key = st.secrets.get("ANTHROPIC_API_KEY", "")
-            except Exception:
-                pass
+        key = _get_api_key()
         return anthropic.Anthropic(api_key=key) if key else None
     except ImportError:
         return None
@@ -64,26 +75,205 @@ Return exactly this JSON structure (use null for unknown fields):
 
 
 def parse_tip(tip_text: str) -> dict:
-    """Use Claude Haiku to extract structured fields from raw tip text."""
+    """Extract structured fields from raw tip text.
+    Uses Claude Haiku when API key is available, otherwise falls back to regex."""
     c = _client()
-    if not c:
-        return {"error": "ANTHROPIC_API_KEY not configured"}
-    try:
-        resp = c.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=600,
-            messages=[{"role": "user", "content": PARSE_PROMPT.format(tip=tip_text)}],
-        )
-        raw = resp.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw)
-    except Exception as exc:
-        logger.error(f"Tip parse failed: {exc}")
-        return {"error": str(exc)}
+    if c:
+        try:
+            resp = c.messages.create(
+                model=HAIKU_MODEL,
+                max_tokens=600,
+                messages=[{"role": "user", "content": PARSE_PROMPT.format(tip=tip_text)}],
+            )
+            raw = resp.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            return json.loads(raw)
+        except Exception as exc:
+            logger.warning(f"Claude parse failed, falling back to regex: {exc}")
+
+    return _parse_tip_regex(tip_text)
+
+
+# ── Regex-based tip parser (no API required) ───────────────────────────────────
+
+# Nifty 200 tickers for recognition (subset of common ones)
+_KNOWN_TICKERS = {
+    # Nifty 50
+    "RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","ITC","SBIN",
+    "BHARTIARTL","KOTAKBANK","LT","AXISBANK","ASIANPAINT","MARUTI","TITAN",
+    "SUNPHARMA","ULTRACEMCO","WIPRO","HCLTECH","NTPC","POWERGRID","ONGC",
+    "TATAMOTORS","TATASTEEL","JSWSTEEL","GRASIM","TECHM","BAJFINANCE",
+    "BAJAJFINSV","NESTLEIND","ADANIENT","ADANIPORTS","DIVISLAB","DRREDDY",
+    "EICHERMOT","CIPLA","HEROMOTOCO","HINDALCO","INDUSINDBK","COALINDIA",
+    "BRITANNIA","BPCL","TATACONSUM","APOLLOHOSP","BAJAJ-AUTO","LTIM",
+    "SBILIFE","HDFCLIFE","UPL","M&M",
+    # Popular mid/small caps frequently tipped
+    "IRFC","IRCTC","ZOMATO","PAYTM","NYKAA","POLICYBZR","DMART","ADANIGREEN",
+    "ADANIPOWER","ADANITRANS","TRENT","VEDL","SAIL","NMDC","RECLTD","PFC",
+    "CANBK","BANKBARODA","UNIONBANK","IDFCFIRSTB","FEDERALBNK","RBLBANK",
+    "JUBLFOOD","MUTHOOTFIN","CHOLAFIN","MANAPPURAM","LTTS","MPHASIS","COFORGE",
+    "PERSISTENT","TATAPOWER","TORNTPOWER","HAVELLS","VOLTAS","GODREJCP",
+    "PIDILITIND","BERGEPAINT","ATUL","DEEPAKNTR","AARTIIND","ALKYLAMINE",
+    "LALPATHLAB","METROPOLIS","THYROCARE","FORTIS","MAXHEALTH","NH",
+    "PAGEIND","RELAXO","BATAINDIA","VMART","ABFRL","MANYAVAR","VBL",
+    "MARICO","DABUR","GODREJIND","COLPAL","EMAMILTD","GILLETTE",
+    "YESBANK","BANDHANBNK","UJJIVAN","EQUITASBNK","SURYAROSNI","CGPOWER",
+    "BEL","HAL","BHEL","BEML","MAZAGON","COCHINSHIP","GRSE","MIDHANI",
+    "CONCOR","TIINDIA","ASTRAL","SUPREMEIND","APLAPOLLO","JINDALSAW",
+}
+
+# Company name → ticker mapping for common names people type out
+_NAME_TO_TICKER = {
+    "hdfc bank": "HDFCBANK", "hdfc": "HDFCBANK",
+    "reliance": "RELIANCE", "reliance industries": "RELIANCE",
+    "tcs": "TCS", "tata consultancy": "TCS",
+    "infosys": "INFY", "infy": "INFY",
+    "icici bank": "ICICIBANK", "icici": "ICICIBANK",
+    "sbi": "SBIN", "state bank": "SBIN",
+    "axis bank": "AXISBANK", "axis": "AXISBANK",
+    "kotak bank": "KOTAKBANK", "kotak": "KOTAKBANK",
+    "bajaj finance": "BAJFINANCE",
+    "larsen": "LT", "l&t": "LT",
+    "wipro": "WIPRO", "hcl": "HCLTECH", "hcl tech": "HCLTECH",
+    "tech mahindra": "TECHM", "tech m": "TECHM",
+    "asian paints": "ASIANPAINT",
+    "titan": "TITAN", "maruti": "MARUTI", "maruti suzuki": "MARUTI",
+    "sun pharma": "SUNPHARMA", "sun pharmaceutical": "SUNPHARMA",
+    "tata motors": "TATAMOTORS", "tata steel": "TATASTEEL",
+    "adani": "ADANIENT", "adani enterprises": "ADANIENT",
+    "bharti airtel": "BHARTIARTL", "airtel": "BHARTIARTL",
+    "ongc": "ONGC", "ntpc": "NTPC",
+    "irfc": "IRFC", "irctc": "IRCTC",
+    "zomato": "ZOMATO", "paytm": "PAYTM",
+}
+
+_RED_FLAG_WORDS = [
+    "operator", "guaranteed", "100%", "sure shot", "sureshot", "no risk",
+    "jackpot", "multibagger alert", "urgent", "limited time", "double",
+    "triple", "circle", "syndicate", "tip from",
+]
+
+
+def _first_number(pattern: str, text: str) -> Optional[float]:
+    """Return the first number matching pattern in text, else None."""
+    import re
+    m = re.search(pattern, text, re.IGNORECASE)
+    if m:
+        # grab the first capture group that contains a number
+        for g in m.groups():
+            if g:
+                try:
+                    return float(g.replace(",", ""))
+                except ValueError:
+                    pass
+    return None
+
+
+def _parse_tip_regex(tip_text: str) -> dict:
+    """Rule-based parser: extracts trade details using regex. No API needed."""
+    import re
+    text = tip_text.strip()
+    upper = text.upper()
+
+    # ── Ticker ──────────────────────────────────────────────────────────────────
+    ticker = None
+
+    # 1. Check known company names (longest match first)
+    for name in sorted(_NAME_TO_TICKER, key=len, reverse=True):
+        if name in text.lower():
+            ticker = _NAME_TO_TICKER[name]
+            break
+
+    # 2. Check known tickers as whole words
+    if not ticker:
+        for t in _KNOWN_TICKERS:
+            if re.search(rf'\b{re.escape(t)}\b', upper):
+                ticker = t
+                break
+
+    # 3. Fall back: first standalone ALL-CAPS word (2-12 chars, not common English)
+    _SKIP = {"BUY","SELL","SL","CMP","AT","T1","T2","TGT","NSE","BSE","NOW",
+             "FOR","THE","AND","OR","WITH","ADD","UP","TO","IN","ON","IS","IT",
+             "A","AN","TARGET","STOP","LOSS","URGENT","SURE","SHOT","100"}
+    if not ticker:
+        for m in re.finditer(r'\b([A-Z][A-Z0-9&\-]{1,11})\b', upper):
+            cand = m.group(1)
+            if cand not in _SKIP and not cand.isdigit():
+                ticker = cand
+                break
+
+    # ── Action ──────────────────────────────────────────────────────────────────
+    action = "SELL" if re.search(r'\bsell\b|\bshort\b', text, re.IGNORECASE) else "BUY"
+
+    # ── Prices — try several common formats ─────────────────────────────────────
+    # Entry: "at 2800", "buy at 2800", "above 1720", "cmp 3850", "@ 2800"
+    tip_price = (
+        _first_number(r'(?:buy|entry|cmp|at|above|@)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)', text)
+        or _first_number(r'(?:buy|entry)\s+([\d,]+(?:\.\d+)?)', text)
+    )
+
+    # Stop loss: "sl 1685", "stop loss 1685", "stop 1685", "sl: 1685"
+    stop_loss = _first_number(
+        r'(?:sl|stop\s*loss|stoploss|stop)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)', text
+    )
+
+    # Targets
+    target_1 = (
+        _first_number(r'(?:t1|tgt\s*1|target\s*1|first\s*target)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)', text)
+        or _first_number(r'(?:target|tgt|tp)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)', text)
+    )
+    target_2 = _first_number(
+        r'(?:t2|tgt\s*2|target\s*2|second\s*target)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)', text
+    )
+
+    # ── Timeframe ────────────────────────────────────────────────────────────────
+    timeframe = "unknown"
+    if re.search(r'\bintraday\b|\btoday\b|\bbtst\b|\bsame day\b', text, re.IGNORECASE):
+        timeframe = "INTRADAY"
+    elif re.search(r'\bpositional\b|\blong.?term\b|\b[3-9]\s*(?:weeks?|months?)\b', text, re.IGNORECASE):
+        timeframe = "POSITIONAL"
+    elif re.search(r'\bswing\b|\b[2-9]\s*(?:-\s*)?[2-9]?\s*days?\b|\bshort.?term\b', text, re.IGNORECASE):
+        timeframe = "SWING"
+
+    # ── Claims ───────────────────────────────────────────────────────────────────
+    low = text.lower()
+    claims = []
+    claim_patterns = [
+        (r'operator',          "operator backing"),
+        (r'guaranteed?|sure\s*shot|100\s*%', "guaranteed returns"),
+        (r'breakout',          "breakout signal"),
+        (r'volume',            "volume confirmation"),
+        (r'news|catalyst|result', "news/catalyst driven"),
+        (r'support|resistance', "key level support/resistance"),
+        (r'multi.?bagger',     "multibagger potential"),
+        (r'urgent|limited\s*time', "urgency/FOMO language"),
+        (r'double|triple|2x|3x', "extreme return claims"),
+        (r'no\s*(?:stop|risk|sl)', "no stop loss suggested"),
+    ]
+    for pattern, label in claim_patterns:
+        if re.search(pattern, low):
+            claims.append(label)
+
+    # ── Parse confidence ─────────────────────────────────────────────────────────
+    filled = sum(x is not None for x in [ticker, tip_price, stop_loss, target_1])
+    confidence = "HIGH" if filled >= 3 else "MEDIUM" if filled >= 2 else "LOW"
+
+    return {
+        "ticker":           ticker or "",
+        "company_name":     ticker or "",
+        "action":           action,
+        "tip_price":        tip_price,
+        "stop_loss":        stop_loss,
+        "target_1":         target_1,
+        "target_2":         target_2,
+        "timeframe":        timeframe,
+        "claims":           claims,
+        "parse_confidence": confidence,
+        "_parsed_by":       "regex",
+    }
 
 
 # ── Step 2: Fetch and score ────────────────────────────────────────────────────
@@ -371,10 +561,11 @@ Write as if you're a trusted friend who happens to be an expert, not a formal re
 
 
 def get_ai_verdict(parsed: dict, analysis: dict) -> str:
-    """Return Claude's plain-English synthesis of the tip analysis."""
+    """Return a plain-English synthesis of the tip analysis.
+    Uses Claude Sonnet when API key is available, otherwise generates a template verdict."""
     c = _client()
     if not c:
-        return "AI verdict unavailable — ANTHROPIC_API_KEY not configured."
+        return _template_verdict(parsed, analysis)
 
     sl  = parsed.get("stop_loss")
     t1  = parsed.get("target_1")
@@ -415,4 +606,132 @@ def get_ai_verdict(parsed: dict, analysis: dict) -> str:
         return resp.content[0].text.strip()
     except Exception as exc:
         logger.error(f"AI verdict failed: {exc}")
-        return f"AI verdict unavailable: {exc}"
+        return _template_verdict(parsed, analysis)
+
+
+# ── Template verdict (no API required) ────────────────────────────────────────
+
+def _template_verdict(parsed: dict, analysis: dict) -> str:
+    """Generate a rule-based plain-English verdict from scores. No API needed."""
+    verdict     = analysis.get("verdict", "MIXED")
+    pump_score  = analysis.get("pump_score", 0)
+    tech_score  = analysis.get("tech_score", 50)
+    rr          = analysis.get("rr")
+    ticker      = analysis.get("ticker", "this stock")
+    rsi         = analysis.get("rsi", 50)
+    vol_ratio   = analysis.get("vol_ratio", 1.0)
+    above_200   = analysis.get("above_sma200", False)
+    above_50    = analysis.get("above_sma50", False)
+    action      = (parsed.get("action") or "BUY").upper()
+    claims      = parsed.get("claims", [])
+    mcap_cr     = analysis.get("market_cap_cr", 0)
+    drift       = analysis.get("price_drift_pct")
+
+    sentences = []
+
+    # ── Sentence 1: headline verdict ────────────────────────────────────────────
+    if verdict == "LIKELY PUMP":
+        sentences.append(
+            f"This tip on {ticker} shows multiple hallmarks of a pump-and-dump scheme "
+            f"and should be treated as highly dangerous."
+        )
+    elif verdict == "HIGH RISK":
+        sentences.append(
+            f"This {ticker} tip carries significant risk — the technical setup or "
+            f"pump indicators are flashing warning signs that you shouldn't ignore."
+        )
+    elif verdict == "CREDIBLE":
+        sentences.append(
+            f"This {ticker} tip looks reasonably credible — the technical setup "
+            f"broadly supports the suggested trade direction."
+        )
+    else:  # MIXED
+        sentences.append(
+            f"This {ticker} tip is a mixed picture — some factors support the trade "
+            f"while others raise caution."
+        )
+
+    # ── Sentence 2: top driver ───────────────────────────────────────────────────
+    drivers = []
+    if pump_score >= 55:
+        drivers.append(f"extremely high pump-risk score of {pump_score}/100")
+    elif pump_score >= 35:
+        drivers.append(f"elevated pump-risk score of {pump_score}/100")
+
+    if vol_ratio >= 3:
+        drivers.append(f"volume is {vol_ratio:.1f}× its 20-day average — a classic manipulation signal")
+    elif vol_ratio >= 2:
+        drivers.append(f"volume is {vol_ratio:.1f}× above average, suggesting unusual activity")
+
+    if 0 < mcap_cr < 500:
+        drivers.append(f"micro-cap status (₹{mcap_cr:,.0f} Cr) makes it trivially easy to manipulate")
+
+    if any(w in " ".join(claims).lower() for w in ["guaranteed", "operator", "sure shot", "100%"]):
+        drivers.append("red-flag language like 'guaranteed' or 'operator backed' in the tip itself")
+
+    if rsi > 75 and action == "BUY":
+        drivers.append(f"RSI of {rsi:.0f} is severely overbought — you would be buying the top")
+    elif rsi < 30 and action == "BUY":
+        drivers.append(f"RSI of {rsi:.0f} is in oversold territory, a potential bounce zone")
+
+    if not above_200 and action == "BUY":
+        drivers.append("price is below the 200-day moving average, meaning the long-term trend is down")
+    elif above_200 and above_50 and action == "BUY":
+        drivers.append("price is above both the 50 and 200-day moving averages, trend is supportive")
+
+    if drift is not None and drift > 8 and action == "BUY":
+        drivers.append(f"price has already moved {drift:.1f}% above the tip price — the move may be over")
+
+    if drivers:
+        top = drivers[:2]
+        sentences.append("The two biggest concerns are: " + ", and ".join(top) + ".")
+    else:
+        sentences.append(f"Technical score of {tech_score}/100 reflects the overall setup quality.")
+
+    # ── Sentence 3: R:R comment ──────────────────────────────────────────────────
+    if rr is None:
+        sentences.append(
+            "The tip does not specify both a stop loss and target, so risk:reward cannot be calculated — "
+            "never enter a trade without defining where you will exit if wrong."
+        )
+    elif rr < 1:
+        sentences.append(
+            f"The risk:reward of 1:{rr:.1f} is worse than breakeven — "
+            f"you stand to lose more than you gain, which is an unacceptable trade structure."
+        )
+    elif rr < 1.5:
+        sentences.append(
+            f"The risk:reward of 1:{rr:.1f} is below the recommended minimum of 1:1.5 — "
+            f"consider passing unless you have strong conviction."
+        )
+    else:
+        sentences.append(
+            f"The risk:reward of 1:{rr:.1f} is {'excellent' if rr >= 2.5 else 'acceptable'} — "
+            f"at least the trade structure makes mathematical sense."
+        )
+
+    # ── Sentence 4: actionable advice ───────────────────────────────────────────
+    if verdict == "LIKELY PUMP":
+        sentences.append(
+            "Do not act on this tip — forward it to SEBI's investor helpline (1800-22-7575) "
+            "if you received it in a group, as it may be part of an organised pump-and-dump."
+        )
+    elif verdict == "HIGH RISK":
+        sentences.append(
+            f"If you still want to trade {ticker}, verify the setup independently on a chart, "
+            f"reduce your position size significantly, and only enter if price is near your "
+            f"defined entry — never chase."
+        )
+    elif verdict == "CREDIBLE":
+        sentences.append(
+            f"Before entering, check {ticker}'s chart on your own platform to confirm the "
+            f"breakout or setup is still valid, and make sure you can honour the stop loss "
+            f"without hesitation."
+        )
+    else:
+        sentences.append(
+            f"Wait for price confirmation before acting — let {ticker} prove the setup is "
+            f"still valid rather than entering blind on a forwarded message."
+        )
+
+    return " ".join(sentences)

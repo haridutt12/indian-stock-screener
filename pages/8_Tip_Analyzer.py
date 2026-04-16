@@ -103,7 +103,7 @@ tip_hash = hashlib.md5((tip_text or "").strip().encode()).hexdigest()
 cache_key = f"tip_result_{tip_hash}"
 
 if cache_key not in st.session_state:
-    with st.spinner("Step 1/3 — Parsing tip with AI…"):
+    with st.spinner("Step 1/3 — Parsing tip…"):
         parsed = parse_tip(tip_text.strip())
 
     if "error" in parsed:
@@ -166,6 +166,11 @@ st.markdown(
     f'</div></div>',
     unsafe_allow_html=True,
 )
+
+# Show a subtle note when running without Claude API (regex mode)
+if parsed.get("_parsed_by") == "regex":
+    st.caption("ℹ️ Running in offline mode — tip parsed with regex, verdict generated from rules. "
+               "Add an `ANTHROPIC_API_KEY` for deeper AI analysis.")
 
 # ── Three score cards ──────────────────────────────────────────────────────────
 pump_color = "#ff4d6d" if pump_score >= 55 else "#ff9800" if pump_score >= 35 else "#00c896"
