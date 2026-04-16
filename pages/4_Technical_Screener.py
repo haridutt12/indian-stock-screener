@@ -63,7 +63,8 @@ should_run = run_btn or run_oversold or run_breakout or run_golden or run_moment
 
 if should_run:
     with st.spinner(f"Scanning {len(tickers)} stocks..."):
-        price_data = fetch_stock_data(tickers)
+        # Fetch 1 year so SMA 200 has enough history (200 trading days ≈ 10 months)
+        price_data = fetch_stock_data(tickers, period="1y")
         rows = []
         for ticker, df in price_data.items():
             if df is None or df.empty:

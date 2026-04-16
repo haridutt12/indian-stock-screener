@@ -155,7 +155,7 @@ def detect_patterns(df: pd.DataFrame) -> list[str]:
     Returns list of pattern names.
     """
     patterns = []
-    if df is None or len(df) < SMA_LONG:
+    if df is None or len(df) < 2:
         return patterns
 
     def _s(val):
@@ -169,16 +169,15 @@ def detect_patterns(df: pd.DataFrame) -> list[str]:
     latest = df.iloc[-1]
     prev = df.iloc[-2] if len(df) >= 2 else None
 
-    # Golden Cross / Death Cross (SMA 50 vs 200)
+    # Golden Cross / Death Cross — state-based: SMA50 position vs SMA200
     sma50_col = f"SMA_{SMA_MID}"
     sma200_col = f"SMA_{SMA_LONG}"
-    if sma50_col in df.columns and sma200_col in df.columns and prev is not None:
+    if sma50_col in df.columns and sma200_col in df.columns:
         l50, l200 = _s(latest[sma50_col]), _s(latest[sma200_col])
-        p50, p200 = _s(prev[sma50_col]), _s(prev[sma200_col])
-        if None not in (l50, l200, p50, p200):
-            if p50 < p200 and l50 > l200:
+        if l50 is not None and l200 is not None:
+            if l50 > l200:
                 patterns.append("Golden Cross")
-            elif p50 > p200 and l50 < l200:
+            else:
                 patterns.append("Death Cross")
 
     # RSI signals

@@ -167,10 +167,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Show a subtle note when running without Claude API (regex mode)
-if parsed.get("_parsed_by") == "regex":
-    st.caption("ℹ️ Running in offline mode — tip parsed with regex, verdict generated from rules. "
-               "Add an `ANTHROPIC_API_KEY` for deeper AI analysis.")
 
 # ── Three score cards ──────────────────────────────────────────────────────────
 pump_color = "#ff4d6d" if pump_score >= 55 else "#ff9800" if pump_score >= 35 else "#00c896"
