@@ -247,6 +247,11 @@ signals = log.get_signals(
     outcome=outcome_filter, days_back=days_back,
 )
 
+# Apply hide-squared-off filter (used in charts + journal table below)
+journal_signals = signals
+if hide_squared_off and outcome_opt != OUTCOME_SQUARED_OFF:
+    journal_signals = [s for s in signals if s["outcome"] != OUTCOME_SQUARED_OFF]
+
 # ── Performance summary ────────────────────────────────────────────────────────
 st.subheader("Performance Summary")
 
@@ -395,11 +400,6 @@ if _stale_open:
         "Click **Resolve Open Signals Now** in the sidebar to fetch latest prices and update outcomes.",
         icon="⚠️",
     )
-
-# ── Apply hide-squared-off filter to the journal (not the perf summary) ───────
-journal_signals = signals
-if hide_squared_off and outcome_opt != OUTCOME_SQUARED_OFF:
-    journal_signals = [s for s in signals if s["outcome"] != OUTCOME_SQUARED_OFF]
 
 # ── Signal history table ───────────────────────────────────────────────────────
 _sq_hidden = len(signals) - len(journal_signals)
