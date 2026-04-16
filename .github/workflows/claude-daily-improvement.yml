@@ -1,0 +1,111 @@
+name: 🤖 Claude Autonomous Improvement
+
+# Runs every weekday at 6 PM IST (12:30 UTC) after market close.
+# Also triggerable manually from the Actions tab with an optional focus area.
+
+on:
+  schedule:
+    - cron: '30 12 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: >
+          Optional: specific task or area to focus on.
+          Leave blank and Claude will choose the highest-impact improvement.
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  improve:
+    name: Autonomous Improvement Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude autonomous improvement
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are autonomously improving the Indian Stock Screener — a Streamlit app for
+            Indian retail investors (NSE/BSE). Your job: make ONE focused, high-quality
+            improvement, commit it to a new branch, and open a pull request.
+
+            == WHAT THIS APP IS ==
+            A multi-page Streamlit app with these pages:
+              1. Market Overview        — Nifty 50 / Bank Nifty / Sensex live data, sector heatmap
+              2. News & Sentiment       — Claude AI overnight market analysis
+              3. Fundamental Screener   — PE, ROE, market cap, debt filters
+              4. Technical Screener     — RSI, MACD, SMA, volume breakouts with live progress cards
+              5. Swing Trades           — 2-5 day signal cards with entry/SL/targets
+              6. Intraday Ideas         — ORB and VWAP Bounce signals during market hours
+              7. Signal Log & Journal   — All signals with outcomes, P&L, win-rate stats
+              8. Tip Analyzer           — Paste any WhatsApp/Telegram tip → pump risk score + verdict
+
+            Key files:
+              app.py               — home page + navigation
+              ui/styles.py         — shared dark-theme CSS (Inter font, gold accents)
+              ui/components.py     — signal_card(), news_item(), sector_sentiment_bar()
+              ui/charts.py         — candlestick_chart(), rsi_macd_chart()
+              analysis/technical.py        — compute_indicators(), detect_patterns(), get_technical_summary()
+              analysis/sentiment.py        — Claude-powered market sentiment
+              analysis/tip_analyzer.py     — regex parser + yfinance scoring + template verdict
+              signals/swing_signals.py     — swing trade signal generation
+              signals/intraday_signals.py  — ORB + VWAP signal generation
+              signals/outcome_tracker.py   — resolves open signals (hit target/SL/expired)
+              signals/signal_logger.py     — SQLite journal
+              data/fetcher.py              — yfinance data fetching with Redis/memory caching
+              data/news_fetcher.py         — RSS feed aggregation
+              config/settings.py           — all constants
+              config/stock_universe.py     — NIFTY_50, NIFTY_200 ticker dicts
+              pages/                       — one file per page (numbered 1–8)
+
+            == WHAT YOU MAY DO ==
+            - Fix bugs (data bugs, UI bugs, logic errors, edge cases)
+            - Improve existing UI (better layout, clearer labels, mobile-friendliness)
+            - Improve performance (caching, batch fetching, reducing API calls)
+            - Add small self-contained features that fit the existing app style
+            - Improve error handling and user-facing error messages
+            - Add helpful empty states, tooltips, or contextual explanations
+            - Improve the signal quality or scoring logic
+            - Refactor for clarity without changing behaviour
+
+            == WHAT YOU MUST NOT DO ==
+            - Do NOT change .streamlit/secrets.toml or any credentials
+            - Do NOT push directly to main — always create a new branch + PR
+            - Do NOT add external paid API dependencies
+            - Do NOT break existing functionality to add new features
+            - Do NOT create new pages unless the improvement is substantial
+            - Do NOT modify GitHub Actions workflow files themselves
+
+            == STYLE RULES ==
+            - Dark theme: primary bg #0d1117, cards #1e2235, accent gold #f0b429, teal #00c896, red #ff4d6d
+            - Font: Inter (loaded in ui/styles.py)
+            - All HTML in st.markdown() must use string concatenation (no embedded <style> blocks)
+            - @keyframes and global CSS go in ui/styles.py only
+            - inject_global_css() must be called in every page after st.set_page_config()
+            - No docstrings or comments added to code you didn't change
+            - Keep changes minimal — no speculative abstractions
+
+            == PROCESS ==
+            1. Read the codebase to understand current state
+            2. Identify the single most impactful improvement (or use the user's requested task if provided: "${{ github.event.inputs.task }}")
+            3. Implement it cleanly
+            4. Run: git checkout -b auto/improve-$(date +%Y%m%d-%H%M)
+            5. Commit with a clear message following the pattern: "type: short description\n\nLonger explanation."
+            6. Push the branch
+            7. Create a pull request with title "🤖 [Auto] <what was done>" and a body that explains:
+               - What was changed and why
+               - How to verify it works
+               - Any caveats or follow-up ideas
+
+            Start by reading the key files to understand the current state, then decide what to improve.
