@@ -86,55 +86,86 @@ st.set_page_config(
     },
 )
 
-# Custom CSS — keep metric/typography polish but do NOT override sidebar bg
-# (overriding sidebar bg with a dark colour hides Streamlit's page navigation links)
-st.markdown("""
+from ui.styles import inject_global_css
+inject_global_css()
+
+# ── Market status ───────────────────────────────────────────────────────────────
+from data.market_status import market_status
+status       = market_status()
+is_open      = status["is_market_open"]
+status_color = "#00c896" if is_open else "#ff4d6d"
+status_label = status["status_label"]
+status_time  = status["datetime_ist"]
+
+# ── Hero banner ─────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div style="
+    background: linear-gradient(135deg, #0d1b2a 0%, #1a1a2e 55%, #0f172a 100%);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 20px;
+    padding: 36px 44px 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+">
+    <!-- Decorative glow blobs -->
+    <div style="position:absolute;top:-70px;right:-70px;width:280px;height:280px;
+        background:radial-gradient(circle,rgba(240,180,41,0.10),transparent 70%);"></div>
+    <div style="position:absolute;bottom:-50px;left:160px;width:220px;height:220px;
+        background:radial-gradient(circle,rgba(0,200,150,0.07),transparent 70%);"></div>
+
+    <div style="position:relative; z-index:1;">
+        <!-- Status pill -->
+        <div style="
+            display:inline-flex; align-items:center; gap:7px;
+            background:rgba({('0,200,150' if is_open else '255,77,109')},0.12);
+            border:1px solid rgba({('0,200,150' if is_open else '255,77,109')},0.3);
+            border-radius:20px; padding:5px 14px;
+            font-size:0.72rem; font-weight:700; color:{status_color};
+            letter-spacing:0.08em; text-transform:uppercase; margin-bottom:18px;
+        ">
+            <span style="width:7px;height:7px;border-radius:50%;background:{status_color};
+                {'animation:pulse 1.5s infinite;' if is_open else ''}"></span>
+            {status_label} &nbsp;·&nbsp; {status_time}
+        </div>
+
+        <h1 style="
+            font-size:2.5rem; font-weight:800; margin:0 0 10px;
+            letter-spacing:-0.03em; line-height:1.15;
+            background:linear-gradient(135deg,#e8eaf0 30%,#7f8ea3 100%);
+            -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        ">Indian Stock Screener</h1>
+        <p style="color:#7f8ea3; font-size:1rem; margin:0; line-height:1.65;">
+            AI-powered swing &amp; intraday signals &nbsp;·&nbsp;
+            NSE technical &amp; fundamental screener &nbsp;·&nbsp;
+            Real-time news sentiment
+        </p>
+    </div>
+</div>
 <style>
-    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
-    .stMetric label { font-size: 0.85rem; color: #aaa; }
-    .stMetric value { font-size: 1.5rem; font-weight: bold; }
-    div[data-testid="stMetricDelta"] { font-size: 0.9rem; }
-    h1, h2, h3 { font-weight: 600; }
+@keyframes pulse {{
+    0%,100% {{ opacity:1; }}
+    50% {{ opacity:0.4; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
-# Home page content
-st.title("📊 Indian Stock Market Screener")
-st.markdown("**AI-powered market analysis for NSE | Swing & Intraday Trade Ideas**")
-
-st.markdown("---")
-st.subheader("Quick Navigation")
-st.caption("Click any page below — or use the sidebar on the left.")
+# ── Navigation tiles ─────────────────────────────────────────────────────────────
+st.markdown('<p style="color:#6b7a99;font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Navigate</p>', unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
-
 with col1:
-    st.page_link("pages/1_Market_Overview.py",     label="📊 Market Overview",       help="Nifty 50, Bank Nifty, Sensex · Sector heatmap · Top gainers/losers")
-    st.page_link("pages/2_News_Sentiment.py",      label="📰 News & Sentiment",       help="Claude AI-powered overnight news analysis · Sector outlook")
-    st.page_link("pages/3_Fundamental_Screener.py",label="🔍 Fundamental Screener",   help="Filter by PE, ROE, market cap, debt · Value/Growth picks")
-    st.page_link("pages/4_Technical_Screener.py",  label="📈 Technical Screener",     help="RSI, MACD, moving averages · Breakout/Oversold presets")
-
+    st.page_link("pages/1_Market_Overview.py",      label="📊  Market Overview",        help="Nifty 50, Bank Nifty, Sensex · Sector heatmap · Live gainers/losers")
+    st.page_link("pages/2_News_Sentiment.py",       label="📰  News & Sentiment",        help="Claude AI overnight news analysis · Sector outlook")
+    st.page_link("pages/3_Fundamental_Screener.py", label="🔍  Fundamental Screener",    help="Filter by PE, ROE, market cap, debt · Value / Growth picks")
+    st.page_link("pages/4_Technical_Screener.py",   label="📈  Technical Screener",      help="RSI, MACD, moving averages · Breakout / Oversold presets")
 with col2:
-    st.page_link("pages/5_Swing_Trades.py",        label="💹 Swing Trades",           help="2–5 day trade ideas with entry, stop-loss & targets")
-    st.page_link("pages/6_Intraday_Ideas.py",      label="⚡ Intraday Ideas",          help="Live ORB & VWAP Bounce signals during market hours")
-    st.page_link("pages/7_Signal_Log.py",          label="📋 Signal Log & Backtesting",help="All past signals with outcomes, P&L and win-rate stats")
-
-st.markdown("---")
-
-# Quick market status on home page
-from data.market_status import market_status
-status = market_status()
-status_color = "#26a69a" if status["is_market_open"] else "#ef5350"
-st.markdown(
-    f'<div style="background:{status_color}22; border-left: 4px solid {status_color}; '
-    f'padding: 12px 16px; border-radius: 4px;">'
-    f'<b>{status["status_label"]}</b> &nbsp;·&nbsp; {status["datetime_ist"]}'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+    st.page_link("pages/5_Swing_Trades.py",         label="💹  Swing Trades",            help="2–5 day signals with entry, stop-loss & targets")
+    st.page_link("pages/6_Intraday_Ideas.py",       label="⚡  Intraday Ideas",           help="Live ORB & VWAP Bounce signals during market hours")
+    st.page_link("pages/7_Signal_Log.py",           label="📋  Signal Log & Journal",    help="All signals with outcomes, net P&L and win-rate stats")
 
 st.markdown("---")
 st.caption(
-    "⚠️ **Disclaimer**: This tool is for educational and informational purposes only. "
-    "Not financial advice. Always do your own research and use proper risk management."
+    "⚠️ For educational and informational purposes only — not financial advice. "
+    "Always do your own research and use proper risk management."
 )

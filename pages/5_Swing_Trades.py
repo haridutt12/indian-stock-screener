@@ -15,6 +15,7 @@ from ui.charts import candlestick_chart, rsi_macd_chart
 from config.stock_universe import NIFTY_50, NIFTY_200
 
 st.set_page_config(page_title="Swing Trades", layout="wide", page_icon="💹")
+from ui.styles import inject_global_css; inject_global_css()
 st.title("💹 Swing Trade Ideas (2–5 Days)")
 
 # ── SIDEBAR ────────────────────────────────────────────────────────────────────

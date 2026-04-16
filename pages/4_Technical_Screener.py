@@ -12,6 +12,7 @@ from config.stock_universe import NIFTY_50, NIFTY_200
 from config.settings import RSI_PERIOD
 
 st.set_page_config(page_title="Technical Screener", layout="wide", page_icon="📈")
+from ui.styles import inject_global_css; inject_global_css()
 st.title("📈 Technical Screener")
 
 # ── SIDEBAR ────────────────────────────────────────────────────────────────────

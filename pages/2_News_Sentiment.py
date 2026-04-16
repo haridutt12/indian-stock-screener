@@ -11,6 +11,7 @@ from analysis.sentiment import analyze_market_sentiment, has_api_key, get_engine
 from ui.components import news_item, sector_sentiment_bar
 
 st.set_page_config(page_title="News & Sentiment", layout="wide", page_icon="📰")
+from ui.styles import inject_global_css; inject_global_css()
 st.title("📰 News & Market Sentiment")
 
 

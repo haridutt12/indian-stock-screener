@@ -27,6 +27,7 @@ except Exception as _exc:
     _import_error = _tb.format_exc()
 
 st.set_page_config(page_title="Signal Log", layout="wide", page_icon="📋")
+from ui.styles import inject_global_css; inject_global_css()
 st.title("📋 Signal Log & Backtesting")
 
 # Surface any import error with the full traceback so it is visible on screen

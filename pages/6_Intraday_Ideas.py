@@ -17,6 +17,7 @@ from config.settings import INTRADAY_LIQUID_STOCKS, YFINANCE_PERIOD_INTRADAY, YF
 from data.fetcher import fetch_stock_data
 
 st.set_page_config(page_title="Intraday Ideas", layout="wide", page_icon="⚡")
+from ui.styles import inject_global_css; inject_global_css()
 st.title("⚡ Intraday Trade Ideas")
 
 status = market_status()
