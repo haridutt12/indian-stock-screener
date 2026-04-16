@@ -53,7 +53,7 @@ with st.sidebar:
 # Preset buttons
 st.subheader("Quick Presets")
 p1, p2, p3, p4 = st.columns(4)
-run_oversold = p1.button("🔻 Oversold (RSI<30)")
+run_oversold = p1.button("🔻 Oversold (RSI<35)")
 run_breakout = p2.button("🚀 Breakout (Vol+SMA)")
 run_golden = p3.button("✨ Golden Cross")
 run_momentum = p4.button("💪 Momentum (RSI 50-70)")
@@ -61,38 +61,136 @@ run_momentum = p4.button("💪 Momentum (RSI 50-70)")
 # ── RUN SCAN ───────────────────────────────────────────────────────────────────
 should_run = run_btn or run_oversold or run_breakout or run_golden or run_momentum
 
+# ── Market insights shown during the scan ─────────────────────────────────────
+SCAN_INSIGHTS = [
+    ("📊 RSI Explained",
+     "RSI (Relative Strength Index) measures momentum on a 0–100 scale. "
+     "Below 30 = oversold (potential bounce zone). Above 70 = overbought (potential reversal). "
+     "RSI 40–60 = neutral momentum."),
+    ("✨ Golden Cross vs Death Cross",
+     "A Golden Cross occurs when the 50-day MA crosses above the 200-day MA — "
+     "historically one of the most reliable long-term bullish signals in markets. "
+     "The opposite (Death Cross) signals long-term bearishness."),
+    ("🚀 Volume Breakouts",
+     "Price breakouts on 1.5× or higher average volume are far more reliable than "
+     "low-volume breakouts. Smart money moves markets — high volume confirms conviction "
+     "behind a move. Always check volume before entering a breakout trade."),
+    ("💪 Momentum Trading",
+     "Stocks with RSI between 50–70 are in a 'sweet spot' — trending up but not yet "
+     "overbought. This zone often offers the best risk-reward for momentum plays "
+     "as the stock has room to run before hitting resistance."),
+    ("📈 The 200-Day Moving Average",
+     "The 200-day MA is the most widely watched long-term trend indicator. "
+     "Above it = bull territory. Below it = bear territory. "
+     "FIIs and large funds use this level as a key filter for equity allocation decisions."),
+    ("🔄 MACD Crossovers",
+     "MACD (Moving Average Convergence Divergence) signals a buy when the MACD line "
+     "crosses above its signal line. This works best when price is also above the "
+     "200-day MA — trend confirmation + momentum = high-probability setup."),
+    ("🏛️ Nifty 50 Composition",
+     "The Nifty 50 represents the top 50 companies by free-float market cap on NSE. "
+     "Financials (banks + NBFCs) make up ~35% of the index — so HDFC Bank, ICICI Bank, "
+     "and Kotak Bank moves have an outsized effect on the overall index."),
+    ("⚡ ATR & Position Sizing",
+     "ATR (Average True Range) measures daily volatility. "
+     "Smart traders size positions so that 1 ATR move = 1% of portfolio risk. "
+     "This keeps every trade risk equal regardless of the stock's price."),
+    ("🎯 Support & Resistance",
+     "Support and resistance levels are where price has repeatedly bounced or reversed. "
+     "The more times a level is tested and holds, the more significant it becomes. "
+     "A break above resistance with volume often leads to a fast move to the next level."),
+    ("📉 Bollinger Band Squeeze",
+     "When Bollinger Bands narrow (squeeze), it signals that volatility is compressing — "
+     "often a precursor to a big directional move. Watch which way price breaks out of "
+     "the squeeze for the direction. This is one of the most reliable breakout setups."),
+    ("🇮🇳 FII & DII Flows",
+     "Foreign Institutional Investors (FIIs) and Domestic Institutional Investors (DIIs) "
+     "are the biggest market movers. FII selling often creates oversold conditions in "
+     "quality stocks — some of the best entry points in Nifty 50 history came during "
+     "heavy FII outflow periods."),
+    ("🔢 The Magic of Compounding",
+     "A stock gaining 26% per year doubles every 3 years. "
+     "Nifty 50 has delivered ~13% CAGR over the last 20 years. "
+     "The key is staying invested through volatility — time in the market beats "
+     "timing the market for most retail investors."),
+]
+
 if should_run:
-    with st.spinner(f"Scanning {len(tickers)} stocks..."):
-        # Fetch 1 year so SMA 200 has enough history (200 trading days ≈ 10 months)
-        price_data = fetch_stock_data(tickers, period="1y")
-        rows = []
-        for ticker, df in price_data.items():
-            if df is None or df.empty:
-                continue
-            df_ind = compute_indicators(df)
-            summary = get_technical_summary(df_ind)
-            if not summary:
-                continue
-            rows.append({
-                "ticker": ticker.replace(".NS", ""),
-                "ticker_yf": ticker,
-                "close": summary.get("close"),
-                "rsi": summary.get("rsi"),
-                "trend": summary.get("trend"),
-                "tech_strength": summary.get("strength"),
-                "atr": summary.get("atr"),
-                "volume_ratio": summary.get("volume_ratio"),
-                "macd_bullish": summary.get("macd_bullish"),
-                "patterns": ", ".join(summary.get("patterns", [])),
-                "support": summary.get("support"),
-                "resistance": summary.get("resistance"),
-                "above_sma200": "Above SMA200" in summary.get("patterns", []),
-                "above_sma50": "Above SMA50" in summary.get("patterns", []),
-                "golden_cross": "Golden Cross" in summary.get("patterns", []),
-                "vol_spike": summary.get("volume_ratio", 1) >= 1.5,
-            })
-        result_df = pd.DataFrame(rows)
-        st.session_state.tech_result_df = result_df
+    # ── Phase 1: Fetch data with insight card ──────────────────────────────────
+    fetch_slot  = st.empty()
+    insight_idx = 0
+
+    def _show_insight(idx: int, status: str, pct: float):
+        fact = SCAN_INSIGHTS[idx % len(SCAN_INSIGHTS)]
+        fetch_slot.markdown(
+            f'<div style="background:linear-gradient(145deg,#1e2235,#181c2e);'
+            f'border:1px solid rgba(255,255,255,0.07);border-radius:16px;'
+            f'padding:22px 26px;margin:8px 0;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'margin-bottom:14px;">'
+            f'<span style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;'
+            f'text-transform:uppercase;color:#6b7a99;">{status}</span>'
+            f'<span style="font-size:0.72rem;color:#f0b429;font-weight:700;">{pct:.0f}%</span>'
+            f'</div>'
+            f'<div style="background:rgba(255,255,255,0.06);border-radius:99px;'
+            f'height:4px;margin-bottom:18px;overflow:hidden;">'
+            f'<div style="width:{pct}%;height:100%;'
+            f'background:linear-gradient(90deg,#f0b429,#00c896);'
+            f'border-radius:99px;transition:width 0.3s;"></div></div>'
+            f'<div style="font-size:0.95rem;font-weight:700;color:#e2e8f0;margin-bottom:6px;">'
+            f'{fact[0]}</div>'
+            f'<div style="font-size:0.85rem;color:#8892a4;line-height:1.65;">'
+            f'{fact[1]}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    _show_insight(0, f"Fetching 1-year data for {len(tickers)} stocks…", 5)
+
+    price_data = fetch_stock_data(tickers, period="1y")
+
+    # ── Phase 2: Compute indicators with live progress ─────────────────────────
+    rows    = []
+    total   = len(price_data)
+    signals = 0
+
+    for i, (ticker, df) in enumerate(price_data.items()):
+        pct    = 10 + (i + 1) / total * 88
+        label  = ticker.replace(".NS", "").replace(".BO", "")
+        status = f"Scanning {label}… ({i+1}/{total})"
+        _show_insight(i, status, pct)
+
+        if df is None or df.empty:
+            continue
+        df_ind  = compute_indicators(df)
+        summary = get_technical_summary(df_ind)
+        if not summary:
+            continue
+
+        signals += 1
+        rows.append({
+            "ticker":       label,
+            "ticker_yf":    ticker,
+            "close":        summary.get("close"),
+            "rsi":          summary.get("rsi"),
+            "trend":        summary.get("trend"),
+            "tech_strength":summary.get("strength"),
+            "atr":          summary.get("atr"),
+            "volume_ratio": summary.get("volume_ratio"),
+            "macd_bullish": summary.get("macd_bullish"),
+            "patterns":     ", ".join(summary.get("patterns", [])),
+            "support":      summary.get("support"),
+            "resistance":   summary.get("resistance"),
+            "above_sma200": "Above SMA200" in summary.get("patterns", []),
+            "above_sma50":  "Above SMA50"  in summary.get("patterns", []),
+            "golden_cross": "Golden Cross" in summary.get("patterns", []),
+            "vol_spike":    summary.get("volume_ratio", 1) >= 1.5,
+        })
+
+    fetch_slot.empty()
+
+    result_df = pd.DataFrame(rows)
+    st.session_state.tech_result_df = result_df
 
 if "tech_result_df" not in st.session_state:
     st.info("Configure filters in the sidebar and click **Run Technical Scan**, or use a preset button above.")
@@ -102,7 +200,7 @@ result_df = st.session_state.tech_result_df.copy()
 
 # Apply preset logic
 if run_oversold:
-    result_df = result_df[result_df["rsi"].notna() & (result_df["rsi"] < 30)]
+    result_df = result_df[result_df["rsi"].notna() & (result_df["rsi"] < 35)]
 elif run_breakout:
     result_df = result_df[result_df["above_sma200"] & result_df["vol_spike"]]
 elif run_golden:
