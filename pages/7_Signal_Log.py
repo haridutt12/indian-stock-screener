@@ -57,6 +57,14 @@ with st.sidebar:
     outcome_opt = st.selectbox("Outcome", outcome_opts)
     outcome_filter = None if outcome_opt == "All" else outcome_opt
 
+    hide_squared_off = st.checkbox(
+        "Hide Squared Off",
+        value=True,
+        help="Squared Off = intraday positions force-closed at 3:30 PM with no stop/target hit. "
+             "Usually noise — hide to focus on meaningful trades.",
+        disabled=(outcome_opt == OUTCOME_SQUARED_OFF),  # pointless to hide if explicitly filtering to it
+    )
+
     days_back = st.slider("History (days)", 7, 180, 60)
 
     st.divider()
@@ -316,8 +324,10 @@ with chart_col1:
 with chart_col2:
     st.subheader("Cumulative Net P&L (₹)")
     # Use net_pnl_inr when available, else gross R proxy
+    # Respect the hide-squared-off setting for the equity curve too
+    _chart_signals = journal_signals if hide_squared_off else signals
     closed = [
-        s for s in signals
+        s for s in _chart_signals
         if s["outcome"] not in (OUTCOME_OPEN,)
         and s.get("outcome_at")
     ]
@@ -386,15 +396,22 @@ if _stale_open:
         icon="⚠️",
     )
 
-# ── Signal history table ───────────────────────────────────────────────────────
-st.subheader(f"Trade Journal ({len(signals)} records)")
+# ── Apply hide-squared-off filter to the journal (not the perf summary) ───────
+journal_signals = signals
+if hide_squared_off and outcome_opt != OUTCOME_SQUARED_OFF:
+    journal_signals = [s for s in signals if s["outcome"] != OUTCOME_SQUARED_OFF]
 
-if not signals:
+# ── Signal history table ───────────────────────────────────────────────────────
+_sq_hidden = len(signals) - len(journal_signals)
+_hidden_note = f" — {_sq_hidden} Squared Off hidden" if _sq_hidden else ""
+st.subheader(f"Trade Journal ({len(journal_signals)} records{_hidden_note})")
+
+if not journal_signals:
     st.info("No signals match the current filters.")
     st.stop()
 
 rows = []
-for s in signals:
+for s in journal_signals:
     patterns = s.get("patterns", "[]")
     if isinstance(patterns, str):
         try:
