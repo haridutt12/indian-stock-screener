@@ -98,57 +98,47 @@ status_label = status["status_label"]
 status_time  = status["datetime_ist"]
 
 # ── Hero banner ─────────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div style="
-    background: linear-gradient(135deg, #0d1b2a 0%, #1a1a2e 55%, #0f172a 100%);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 20px;
-    padding: 36px 44px 32px;
-    margin-bottom: 24px;
-    position: relative;
-    overflow: hidden;
-">
-    <!-- Decorative glow blobs -->
-    <div style="position:absolute;top:-70px;right:-70px;width:280px;height:280px;
-        background:radial-gradient(circle,rgba(240,180,41,0.10),transparent 70%);"></div>
-    <div style="position:absolute;bottom:-50px;left:160px;width:220px;height:220px;
-        background:radial-gradient(circle,rgba(0,200,150,0.07),transparent 70%);"></div>
+# Pre-compute all dynamic parts to keep the HTML string simple and parser-friendly
+pill_rgb      = "0,200,150" if is_open else "255,77,109"
+pulse_anim    = "animation:pulse 1.5s infinite;" if is_open else ""
 
-    <div style="position:relative; z-index:1;">
-        <!-- Status pill -->
-        <div style="
-            display:inline-flex; align-items:center; gap:7px;
-            background:rgba({('0,200,150' if is_open else '255,77,109')},0.12);
-            border:1px solid rgba({('0,200,150' if is_open else '255,77,109')},0.3);
-            border-radius:20px; padding:5px 14px;
-            font-size:0.72rem; font-weight:700; color:{status_color};
-            letter-spacing:0.08em; text-transform:uppercase; margin-bottom:18px;
-        ">
-            <span style="width:7px;height:7px;border-radius:50%;background:{status_color};
-                {'animation:pulse 1.5s infinite;' if is_open else ''}"></span>
-            {status_label} &nbsp;·&nbsp; {status_time}
-        </div>
+hero_html = (
+    '<div style="background:linear-gradient(135deg,#0d1b2a 0%,#1a1a2e 55%,#0f172a 100%);'
+    'border:1px solid rgba(255,255,255,0.07);border-radius:20px;'
+    'padding:36px 44px 32px;margin-bottom:24px;position:relative;overflow:hidden;">'
 
-        <h1 style="
-            font-size:2.5rem; font-weight:800; margin:0 0 10px;
-            letter-spacing:-0.03em; line-height:1.15;
-            background:linear-gradient(135deg,#e8eaf0 30%,#7f8ea3 100%);
-            -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-        ">Indian Stock Screener</h1>
-        <p style="color:#7f8ea3; font-size:1rem; margin:0; line-height:1.65;">
-            AI-powered swing &amp; intraday signals &nbsp;·&nbsp;
-            NSE technical &amp; fundamental screener &nbsp;·&nbsp;
-            Real-time news sentiment
-        </p>
-    </div>
-</div>
-<style>
-@keyframes pulse {{
-    0%,100% {{ opacity:1; }}
-    50% {{ opacity:0.4; }}
-}}
-</style>
-""", unsafe_allow_html=True)
+    # decorative blobs
+    '<div style="position:absolute;top:-70px;right:-70px;width:280px;height:280px;'
+    'background:radial-gradient(circle,rgba(240,180,41,0.10),transparent 70%);"></div>'
+    '<div style="position:absolute;bottom:-50px;left:160px;width:220px;height:220px;'
+    'background:radial-gradient(circle,rgba(0,200,150,0.07),transparent 70%);"></div>'
+
+    # content wrapper
+    '<div style="position:relative;z-index:1;">'
+
+    # status pill
+    f'<div style="display:inline-flex;align-items:center;gap:7px;'
+    f'background:rgba({pill_rgb},0.12);border:1px solid rgba({pill_rgb},0.3);'
+    f'border-radius:20px;padding:5px 14px;font-size:0.72rem;font-weight:700;'
+    f'color:{status_color};letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px;">'
+    f'<span style="width:7px;height:7px;border-radius:50%;background:{status_color};{pulse_anim}"></span>'
+    f'&nbsp;{status_label}&nbsp;&middot;&nbsp;{status_time}</div>'
+
+    # heading
+    '<h1 style="font-size:2.5rem;font-weight:800;margin:0 0 10px;letter-spacing:-0.03em;'
+    'line-height:1.15;background:linear-gradient(135deg,#e8eaf0 30%,#7f8ea3 100%);'
+    '-webkit-background-clip:text;-webkit-text-fill-color:transparent;">'
+    'Indian Stock Screener</h1>'
+
+    # subtitle
+    '<p style="color:#7f8ea3;font-size:1rem;margin:0;line-height:1.65;">'
+    'AI-powered swing &amp; intraday signals &nbsp;&middot;&nbsp;'
+    'NSE technical &amp; fundamental screener &nbsp;&middot;&nbsp;'
+    'Real-time news sentiment</p>'
+
+    '</div></div>'
+)
+st.markdown(hero_html, unsafe_allow_html=True)
 
 # ── Navigation tiles ─────────────────────────────────────────────────────────────
 st.markdown('<p style="color:#6b7a99;font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Navigate</p>', unsafe_allow_html=True)
@@ -163,6 +153,7 @@ with col2:
     st.page_link("pages/5_Swing_Trades.py",         label="💹  Swing Trades",            help="2–5 day signals with entry, stop-loss & targets")
     st.page_link("pages/6_Intraday_Ideas.py",       label="⚡  Intraday Ideas",           help="Live ORB & VWAP Bounce signals during market hours")
     st.page_link("pages/7_Signal_Log.py",           label="📋  Signal Log & Journal",    help="All signals with outcomes, net P&L and win-rate stats")
+    st.page_link("pages/8_Tip_Analyzer.py",         label="🔍  Tip Analyzer",            help="Paste any WhatsApp/Telegram tip — AI pump detector & credibility verdict")
 
 st.markdown("---")
 st.caption(

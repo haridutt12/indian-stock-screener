@@ -140,6 +140,16 @@ a[data-testid="stPageLink-NavLink"]:hover {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
 </style>
 """
 
