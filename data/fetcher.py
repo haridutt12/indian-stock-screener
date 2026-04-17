@@ -62,6 +62,8 @@ def fetch_stock_data(
                         df = raw.copy()
                     else:
                         df = raw[ticker].copy()
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
                     df = df.dropna(how="all")
                     df.index = pd.to_datetime(df.index)
                     if not df.empty:
