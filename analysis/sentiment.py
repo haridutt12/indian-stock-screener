@@ -250,11 +250,7 @@ def _vader_market_sentiment(news_items: list[dict]) -> dict:
     if top_neg:
         summary += "Top negative: " + "; ".join(s["item"].get("title","")[:60] for s in top_neg) + "."
 
-    implications = (
-        f"Market tone is {label.lower()} based on news flow. "
-        "For deeper AI-generated insights (sector rotation, trade setups), "
-        "add a free Google Gemini API key or an Anthropic API key."
-    )
+    implications = f"Market tone is {label.lower()} based on news flow."
 
     catalysts = [s["item"].get("title","")[:60] for s in top_pos if s["compound"] > 0.2][:2]
     risks     = [s["item"].get("title","")[:60] for s in top_neg if s["compound"] < -0.2][:2]
