@@ -1,34 +1,33 @@
 """
-Signal Logger: Persists generated trade signals to SQLite for backtesting.
+Signal Logger — persists trade signals to SQLite (local) or PostgreSQL (production).
 
-Each signal is stored once per (ticker, strategy, timeframe, date) — duplicate
-calls for the same signal on the same trading day are silently skipped.
+Production setup (Supabase / Neon / any Postgres):
+  .streamlit/secrets.toml:  DATABASE_URL = "postgresql://user:pass@host/db"
+  Environment variable:     export DATABASE_URL="postgresql://..."
 
-Outcomes are updated by outcome_tracker.py after market close.
-Cost/P&L columns are populated at resolution time by compute_trade_cost().
+The table is created automatically on first run — no manual DDL needed.
+Without DATABASE_URL the app falls back to local data_store/signals.db.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 import sqlite3
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import pytz
 
-# TradeSignal is only needed for type hints, not at runtime.
-# Using TYPE_CHECKING avoids any circular-import or init-order issues.
 if TYPE_CHECKING:
     from signals.signal_models import TradeSignal
 
 logger = logging.getLogger(__name__)
-
 IST = pytz.timezone("Asia/Kolkata")
 
-# DB lives alongside the cache DB
 SIGNALS_DB_PATH = Path("data_store/signals.db")
 
 # ── Outcome constants ──────────────────────────────────────────────────────────
@@ -36,18 +35,44 @@ OUTCOME_OPEN        = "OPEN"
 OUTCOME_TARGET1     = "TARGET1_HIT"
 OUTCOME_TARGET2     = "TARGET2_HIT"
 OUTCOME_STOPPED     = "STOPPED"
-OUTCOME_SQUARED_OFF = "SQUARED_OFF"   # intraday forced close at market end
-OUTCOME_EXPIRED     = "EXPIRED"       # swing held past expiry window
+OUTCOME_SQUARED_OFF = "SQUARED_OFF"
+OUTCOME_EXPIRED     = "EXPIRED"
 
-# Swing signals expire after this many calendar days with no trigger
 SWING_EXPIRY_DAYS = 14
 
+# ── Backend detection ──────────────────────────────────────────────────────────
+
+def _resolve_db_url() -> Optional[str]:
+    url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
+    if url:
+        return url
+    try:
+        import streamlit as st
+        return st.secrets.get("DATABASE_URL") or st.secrets.get("SUPABASE_DB_URL")
+    except Exception:
+        return None
+
+
+_DATABASE_URL: Optional[str] = _resolve_db_url()
+_USE_PG = False
+
+try:
+    import psycopg2
+    import psycopg2.extras as _pg_extras
+    if _DATABASE_URL:
+        _USE_PG = True
+        logger.info("SignalLogger: PostgreSQL backend active")
+    else:
+        logger.info("SignalLogger: psycopg2 available but DATABASE_URL not set — using SQLite")
+except ImportError:
+    logger.info("SignalLogger: psycopg2 not installed — using SQLite")
+
 # ── Schema ─────────────────────────────────────────────────────────────────────
+
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS signal_log (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     signal_id           TEXT    UNIQUE NOT NULL,
-    -- When / where
     logged_at           TEXT    NOT NULL,
     signal_date         TEXT    NOT NULL,
     ticker              TEXT    NOT NULL,
@@ -56,7 +81,6 @@ CREATE TABLE IF NOT EXISTS signal_log (
     strategy            TEXT    NOT NULL,
     direction           TEXT    NOT NULL,
     sector              TEXT,
-    -- Trade levels
     entry_price         REAL    NOT NULL,
     stop_loss           REAL    NOT NULL,
     target_1            REAL    NOT NULL,
@@ -65,22 +89,18 @@ CREATE TABLE IF NOT EXISTS signal_log (
     sl_pct              REAL,
     t1_pct              REAL,
     t2_pct              REAL,
-    -- Scores
     technical_score     REAL,
     fundamental_score   REAL,
     sentiment_score     REAL,
     confidence          INTEGER,
-    -- Context
     patterns            TEXT,
     reasoning           TEXT,
-    -- Outcome
     outcome             TEXT    NOT NULL DEFAULT 'OPEN',
     outcome_price       REAL,
     outcome_at          TEXT,
     max_gain_pct        REAL,
     max_loss_pct        REAL,
     pnl_r               REAL,
-    -- Cost & net P&L (populated on resolution)
     position_size_inr   REAL,
     cost_brokerage      REAL,
     cost_stt            REAL,
@@ -96,7 +116,12 @@ CREATE TABLE IF NOT EXISTS signal_log (
 )
 """
 
-# Columns added after the initial release — applied via ALTER TABLE migration
+# PostgreSQL uses SERIAL instead of AUTOINCREMENT; rest of the schema is identical
+_CREATE_TABLE_PG_SQL = _CREATE_TABLE_SQL.replace(
+    "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "SERIAL PRIMARY KEY",
+)
+
 _MIGRATION_COLUMNS = [
     ("position_size_inr",  "REAL"),
     ("cost_brokerage",     "REAL"),
@@ -119,103 +144,138 @@ _CREATE_INDEXES_SQL = [
 ]
 
 
-def _make_signal_id(signal: TradeSignal, date_str: str) -> str:
-    """Stable dedup key: same ticker + strategy + timeframe + date + entry → same ID."""
+def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     raw = f"{signal.ticker}|{signal.strategy}|{signal.timeframe}|{date_str}|{signal.entry_price:.2f}"
     return hashlib.md5(raw.encode()).hexdigest()[:20]
 
 
+# ── SignalLogger ───────────────────────────────────────────────────────────────
+
 class SignalLogger:
-    """Thread-safe SQLite-backed signal log."""
+    """Thread-safe signal log backed by SQLite (local) or PostgreSQL (production)."""
 
     def __init__(self, db_path: Path = SIGNALS_DB_PATH):
         self._db_path = db_path
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, check_same_thread=False, timeout=10)
+    # ── Connection management ──────────────────────────────────────────────────
+
+    def _open_conn(self):
+        if _USE_PG:
+            return psycopg2.connect(_DATABASE_URL, cursor_factory=_pg_extras.RealDictCursor)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(self._db_path), check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
-    def _init_db(self):
-        with self._connect() as conn:
-            conn.execute(_CREATE_TABLE_SQL)
-            for stmt in _CREATE_INDEXES_SQL:
-                conn.execute(stmt)
-            # Migration: add cost columns to existing DBs
-            existing = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(signal_log)").fetchall()
-            }
-            for col, col_type in _MIGRATION_COLUMNS:
-                if col not in existing:
-                    conn.execute(f"ALTER TABLE signal_log ADD COLUMN {col} {col_type}")
+    @contextmanager
+    def _db_conn(self):
+        conn = self._open_conn()
+        try:
+            yield conn
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _exec(self, conn, sql: str, params=()):
+        """Execute SQL, converting ? → %s for PostgreSQL. Returns the cursor."""
+        if _USE_PG:
+            sql = sql.replace("?", "%s")
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    # ── Schema init / migration ────────────────────────────────────────────────
+
+    def _init_db(self):
+        create_sql = _CREATE_TABLE_PG_SQL if _USE_PG else _CREATE_TABLE_SQL
+        with self._db_conn() as conn:
+            self._exec(conn, create_sql)
+            for stmt in _CREATE_INDEXES_SQL:
+                try:
+                    self._exec(conn, stmt)
+                except Exception:
+                    pass
+
+        # Migrations — separate transaction per column to be safe
+        for col, col_type in _MIGRATION_COLUMNS:
+            try:
+                with self._db_conn() as conn:
+                    if _USE_PG:
+                        self._exec(conn, f"ALTER TABLE signal_log ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                    else:
+                        existing = {
+                            row[1]
+                            for row in conn.execute("PRAGMA table_info(signal_log)").fetchall()
+                        }
+                        if col not in existing:
+                            self._exec(conn, f"ALTER TABLE signal_log ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass
 
     # ── Write ──────────────────────────────────────────────────────────────────
 
-    def log_signal(self, signal: TradeSignal) -> bool:
-        """
-        Persist one signal. Returns True if newly inserted, False if duplicate.
-        Never raises — errors are logged and swallowed.
-        """
+    def log_signal(self, signal: "TradeSignal") -> bool:
         now_ist   = datetime.now(IST)
         date_str  = now_ist.strftime("%Y-%m-%d")
         signal_id = _make_signal_id(signal, date_str)
 
+        cols = (
+            "signal_id, logged_at, signal_date, ticker, name, "
+            "timeframe, strategy, direction, sector, "
+            "entry_price, stop_loss, target_1, target_2, "
+            "risk_reward, sl_pct, t1_pct, t2_pct, "
+            "technical_score, fundamental_score, sentiment_score, "
+            "confidence, patterns, reasoning, outcome"
+        )
+        ph = ", ".join(["?"] * 24)
+
+        if _USE_PG:
+            sql = f"INSERT INTO signal_log ({cols}) VALUES ({ph}) ON CONFLICT (signal_id) DO NOTHING"
+        else:
+            sql = f"INSERT OR IGNORE INTO signal_log ({cols}) VALUES ({ph})"
+
+        params = (
+            signal_id,
+            now_ist.strftime("%Y-%m-%d %H:%M:%S"),
+            date_str,
+            signal.ticker,
+            signal.name,
+            signal.timeframe,
+            signal.strategy,
+            signal.direction,
+            signal.sector,
+            round(signal.entry_price, 2),
+            round(signal.stop_loss, 2),
+            round(signal.target_1, 2),
+            round(signal.target_2, 2),
+            round(signal.risk_reward, 2),
+            round(signal.stop_loss_pct, 2),
+            round(signal.target_1_pct, 2),
+            round(signal.target_2_pct, 2),
+            round(signal.technical_score, 3),
+            round(signal.fundamental_score, 3),
+            round(signal.sentiment_score, 3),
+            signal.confidence,
+            json.dumps(signal.patterns),
+            signal.reasoning,
+            OUTCOME_OPEN,
+        )
+
         try:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO signal_log
-                        (signal_id, logged_at, signal_date, ticker, name,
-                         timeframe, strategy, direction, sector,
-                         entry_price, stop_loss, target_1, target_2,
-                         risk_reward, sl_pct, t1_pct, t2_pct,
-                         technical_score, fundamental_score, sentiment_score,
-                         confidence, patterns, reasoning, outcome)
-                    VALUES
-                        (?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?)
-                    """,
-                    (
-                        signal_id,
-                        now_ist.strftime("%Y-%m-%d %H:%M:%S"),
-                        date_str,
-                        signal.ticker,
-                        signal.name,
-                        signal.timeframe,
-                        signal.strategy,
-                        signal.direction,
-                        signal.sector,
-                        round(signal.entry_price, 2),
-                        round(signal.stop_loss, 2),
-                        round(signal.target_1, 2),
-                        round(signal.target_2, 2),
-                        round(signal.risk_reward, 2),
-                        round(signal.stop_loss_pct, 2),
-                        round(signal.target_1_pct, 2),
-                        round(signal.target_2_pct, 2),
-                        round(signal.technical_score, 3),
-                        round(signal.fundamental_score, 3),
-                        round(signal.sentiment_score, 3),
-                        signal.confidence,
-                        json.dumps(signal.patterns),
-                        signal.reasoning,
-                        OUTCOME_OPEN,
-                    ),
-                )
-                inserted = conn.total_changes > 0
-                conn.commit()
-                return inserted
+            with self._db_conn() as conn:
+                cur = self._exec(conn, sql, params)
+                return cur.rowcount > 0
         except Exception as exc:
             logger.error(f"SignalLogger.log_signal failed for {signal.ticker}: {exc}")
             return False
 
-    def log_signals(self, signals: list[TradeSignal]) -> int:
-        """Log a batch of signals. Returns count of newly inserted rows."""
+    def log_signals(self, signals: list["TradeSignal"]) -> int:
         new_count = sum(1 for s in signals if self.log_signal(s))
         if new_count:
             logger.info(f"Signal logger: persisted {new_count} new signal(s).")
@@ -227,107 +287,63 @@ class SignalLogger:
         outcome: str,
         outcome_price: float,
         outcome_at: str,
-        # raw candle stats
         max_gain_pct: Optional[float] = None,
         max_loss_pct: Optional[float] = None,
         pnl_r: Optional[float] = None,
-        # cost & net P&L (from trade_costs.compute_trade_cost)
         cost_breakdown: Optional[dict] = None,
     ):
-        """Update the outcome of a resolved signal. Only updates OPEN rows."""
         cb = cost_breakdown or {}
+        sql = """
+            UPDATE signal_log
+            SET outcome=?, outcome_price=?, outcome_at=?,
+                max_gain_pct=?, max_loss_pct=?, pnl_r=?,
+                position_size_inr=?,
+                cost_brokerage=?, cost_stt=?, cost_exchange=?,
+                cost_stamp_duty=?, cost_gst=?, cost_total_inr=?,
+                cost_total_pct=?, gross_pnl_inr=?, net_pnl_inr=?,
+                net_pnl_pct=?, net_pnl_r=?
+            WHERE signal_id=? AND outcome=?
+        """
+        params = (
+            outcome,
+            round(outcome_price, 2),
+            outcome_at,
+            round(max_gain_pct, 2)  if max_gain_pct  is not None else None,
+            round(max_loss_pct, 2)  if max_loss_pct  is not None else None,
+            round(pnl_r, 3)         if pnl_r         is not None else None,
+            cb.get("position_size_inr"),
+            cb.get("brokerage_inr"),
+            cb.get("stt_inr"),
+            cb.get("exchange_charges_inr"),
+            cb.get("stamp_duty_inr"),
+            cb.get("gst_inr"),
+            cb.get("cost_total_inr"),
+            cb.get("cost_total_pct"),
+            cb.get("gross_pnl_inr"),
+            cb.get("net_pnl_inr"),
+            cb.get("net_pnl_pct"),
+            cb.get("net_pnl_r"),
+            signal_id,
+            OUTCOME_OPEN,
+        )
         try:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    UPDATE signal_log
-                    SET outcome=?, outcome_price=?, outcome_at=?,
-                        max_gain_pct=?, max_loss_pct=?, pnl_r=?,
-                        position_size_inr=?,
-                        cost_brokerage=?, cost_stt=?, cost_exchange=?,
-                        cost_stamp_duty=?, cost_gst=?, cost_total_inr=?,
-                        cost_total_pct=?, gross_pnl_inr=?, net_pnl_inr=?,
-                        net_pnl_pct=?, net_pnl_r=?
-                    WHERE signal_id=? AND outcome=?
-                    """,
-                    (
-                        outcome,
-                        round(outcome_price, 2),
-                        outcome_at,
-                        round(max_gain_pct, 2)  if max_gain_pct  is not None else None,
-                        round(max_loss_pct, 2)  if max_loss_pct  is not None else None,
-                        round(pnl_r, 3)         if pnl_r         is not None else None,
-                        cb.get("position_size_inr"),
-                        cb.get("brokerage_inr"),
-                        cb.get("stt_inr"),
-                        cb.get("exchange_charges_inr"),
-                        cb.get("stamp_duty_inr"),
-                        cb.get("gst_inr"),
-                        cb.get("cost_total_inr"),
-                        cb.get("cost_total_pct"),
-                        cb.get("gross_pnl_inr"),
-                        cb.get("net_pnl_inr"),
-                        cb.get("net_pnl_pct"),
-                        cb.get("net_pnl_r"),
-                        signal_id,
-                        OUTCOME_OPEN,
-                    ),
-                )
-                conn.commit()
+            with self._db_conn() as conn:
+                self._exec(conn, sql, params)
         except Exception as exc:
             logger.error(f"SignalLogger.update_outcome failed ({signal_id}): {exc}")
 
     # ── Read ───────────────────────────────────────────────────────────────────
 
-    def purge_non_trading_day_signals(self) -> int:
-        """
-        Delete any signals whose signal_date falls on a weekend or NSE holiday.
-        Returns the number of rows deleted.
-        """
-        from data.market_status import ALL_HOLIDAYS
-        from datetime import date, datetime
-        deleted = 0
-        try:
-            with self._connect() as conn:
-                dates = conn.execute(
-                    "SELECT DISTINCT signal_date FROM signal_log"
-                ).fetchall()
-                for row in dates:
-                    d_str = row[0]
-                    try:
-                        d = datetime.strptime(d_str, "%Y-%m-%d").date()
-                    except ValueError:
-                        continue
-                    if d.weekday() >= 5 or d in ALL_HOLIDAYS:
-                        result = conn.execute(
-                            "DELETE FROM signal_log WHERE signal_date=?", (d_str,)
-                        )
-                        deleted += result.rowcount
-                conn.commit()
-        except Exception as exc:
-            logger.error(f"purge_non_trading_day_signals failed: {exc}")
-        if deleted:
-            logger.info(f"Purged {deleted} signal(s) from non-trading days.")
-        return deleted
-
     def get_open_signals(self, timeframe: Optional[str] = None) -> list[dict]:
-        """Return all signals still awaiting outcome resolution.
-
-        Args:
-            timeframe: Optional filter — 'INTRADAY' or 'SWING'. None returns all.
-        """
-        with self._connect() as conn:
-            if timeframe:
-                rows = conn.execute(
-                    "SELECT * FROM signal_log WHERE outcome=? AND timeframe=? ORDER BY logged_at ASC",
-                    (OUTCOME_OPEN, timeframe),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM signal_log WHERE outcome=? ORDER BY logged_at ASC",
-                    (OUTCOME_OPEN,),
-                ).fetchall()
-        return [dict(r) for r in rows]
+        if timeframe:
+            sql    = "SELECT * FROM signal_log WHERE outcome=? AND timeframe=? ORDER BY logged_at ASC"
+            params = (OUTCOME_OPEN, timeframe)
+        else:
+            sql    = "SELECT * FROM signal_log WHERE outcome=? ORDER BY logged_at ASC"
+            params = (OUTCOME_OPEN,)
+        with self._db_conn() as conn:
+            cur = self._exec(conn, sql, params)
+            return [dict(r) for r in cur.fetchall()]
 
     def get_signals(
         self,
@@ -336,79 +352,65 @@ class SignalLogger:
         outcome: Optional[str] = None,
         days_back: int = 60,
     ) -> list[dict]:
-        """Fetch signal history for display / backtesting analysis."""
-        clauses = ["signal_date >= date('now', ?)"]
-        params: list = [f"-{days_back} days"]
+        cutoff  = (date.today() - timedelta(days=days_back)).isoformat()
+        clauses = ["signal_date >= ?"]
+        params: list = [cutoff]
 
         if timeframe:
-            clauses.append("timeframe=?")
-            params.append(timeframe)
+            clauses.append("timeframe=?");  params.append(timeframe)
         if strategy:
-            clauses.append("strategy=?")
-            params.append(strategy)
+            clauses.append("strategy=?");   params.append(strategy)
         if outcome:
-            clauses.append("outcome=?")
-            params.append(outcome)
+            clauses.append("outcome=?");    params.append(outcome)
 
         where = " AND ".join(clauses)
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM signal_log WHERE {where} ORDER BY logged_at DESC",
-                params,
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with self._db_conn() as conn:
+            cur = self._exec(conn, f"SELECT * FROM signal_log WHERE {where} ORDER BY logged_at DESC", params)
+            return [dict(r) for r in cur.fetchall()]
 
     def get_performance_summary(
         self,
         timeframe: Optional[str] = None,
         days_back: int = 60,
     ) -> dict:
-        """
-        Aggregate win/loss and cost/net-P&L statistics.
-
-        Returns:
-            total, open, won (t1+t2), lost, squared_off, expired,
-            win_rate (%), avg_r (gross), avg_net_pnl_inr,
-            total_net_pnl_inr, by_strategy
-        """
-        clauses = ["signal_date >= date('now', ?)"]
-        params: list = [f"-{days_back} days"]
+        cutoff  = (date.today() - timedelta(days=days_back)).isoformat()
+        clauses = ["signal_date >= ?"]
+        params: list = [cutoff]
         if timeframe:
-            clauses.append("timeframe=?")
-            params.append(timeframe)
+            clauses.append("timeframe=?"); params.append(timeframe)
         where = " AND ".join(clauses)
 
-        with self._connect() as conn:
-            # Outcome counts
-            outcome_rows = conn.execute(
+        with self._db_conn() as conn:
+            cur = self._exec(
+                conn,
                 f"SELECT outcome, COUNT(*) AS cnt FROM signal_log WHERE {where} GROUP BY outcome",
                 params,
-            ).fetchall()
-            by_outcome = {r["outcome"]: r["cnt"] for r in outcome_rows}
+            )
+            by_outcome = {r["outcome"]: r["cnt"] for r in cur.fetchall()}
 
-            # Avg gross R on closed (non-OPEN) signals
-            avg_r_row = conn.execute(
-                f"SELECT AVG(pnl_r) AS avg_r FROM signal_log "
-                f"WHERE {where} AND outcome NOT IN (?,?)",
+            cur = self._exec(
+                conn,
+                f"SELECT AVG(pnl_r) AS avg_r FROM signal_log WHERE {where} AND outcome NOT IN (?,?)",
                 params + [OUTCOME_OPEN, OUTCOME_EXPIRED],
-            ).fetchone()
+            )
+            avg_r_row = cur.fetchone()
 
-            # Net P&L aggregates across all resolved signals
-            pnl_row = conn.execute(
+            cur = self._exec(
+                conn,
                 f"""
-                SELECT
-                    AVG(net_pnl_inr)   AS avg_net_pnl,
-                    SUM(net_pnl_inr)   AS total_net_pnl,
-                    AVG(cost_total_inr) AS avg_cost,
-                    SUM(cost_total_inr) AS total_cost
+                SELECT AVG(net_pnl_inr)    AS avg_net_pnl,
+                       SUM(net_pnl_inr)    AS total_net_pnl,
+                       AVG(cost_total_inr) AS avg_cost,
+                       SUM(cost_total_inr) AS total_cost
                 FROM signal_log
                 WHERE {where} AND outcome NOT IN (?,?)
                 """,
                 params + [OUTCOME_OPEN, OUTCOME_EXPIRED],
-            ).fetchone()
+            )
+            pnl_row = cur.fetchone()
 
-            # Per-strategy breakdown
-            strat_rows = conn.execute(
+            cur = self._exec(
+                conn,
                 f"""
                 SELECT strategy,
                        COUNT(*) AS total,
@@ -422,22 +424,23 @@ class SignalLogger:
                 GROUP BY strategy
                 """,
                 [
-                    OUTCOME_TARGET1, OUTCOME_TARGET2,   # wins
-                    OUTCOME_STOPPED,                     # losses
-                    OUTCOME_OPEN, OUTCOME_EXPIRED,       # avg_r exclusion
-                    OUTCOME_OPEN, OUTCOME_EXPIRED,       # net_pnl exclusion
-                    OUTCOME_OPEN, OUTCOME_EXPIRED,       # avg_net_pnl exclusion
+                    OUTCOME_TARGET1, OUTCOME_TARGET2,
+                    OUTCOME_STOPPED,
+                    OUTCOME_OPEN, OUTCOME_EXPIRED,
+                    OUTCOME_OPEN, OUTCOME_EXPIRED,
+                    OUTCOME_OPEN, OUTCOME_EXPIRED,
                 ] + params,
-            ).fetchall()
+            )
+            strat_rows = cur.fetchall()
 
-        won          = by_outcome.get(OUTCOME_TARGET1, 0) + by_outcome.get(OUTCOME_TARGET2, 0)
-        lost         = by_outcome.get(OUTCOME_STOPPED, 0)
-        squared_off  = by_outcome.get(OUTCOME_SQUARED_OFF, 0)
-        open_cnt     = by_outcome.get(OUTCOME_OPEN, 0)
-        expired      = by_outcome.get(OUTCOME_EXPIRED, 0)
-        total        = sum(by_outcome.values())
-        closed       = won + lost + squared_off   # excludes expired/open for win-rate
-        win_rate     = round(won / closed * 100, 1) if closed > 0 else 0.0
+        won         = by_outcome.get(OUTCOME_TARGET1, 0) + by_outcome.get(OUTCOME_TARGET2, 0)
+        lost        = by_outcome.get(OUTCOME_STOPPED, 0)
+        squared_off = by_outcome.get(OUTCOME_SQUARED_OFF, 0)
+        open_cnt    = by_outcome.get(OUTCOME_OPEN, 0)
+        expired     = by_outcome.get(OUTCOME_EXPIRED, 0)
+        total       = sum(by_outcome.values())
+        closed      = won + lost + squared_off
+        win_rate    = round(won / closed * 100, 1) if closed > 0 else 0.0
 
         by_strategy = {}
         for r in strat_rows:
@@ -445,33 +448,55 @@ class SignalLogger:
             s_losses = r["losses"] or 0
             s_closed = s_wins + s_losses
             by_strategy[r["strategy"]] = {
-                "total":        r["total"],
-                "wins":         s_wins,
-                "losses":       s_losses,
-                "win_rate":     round(s_wins / s_closed * 100, 1) if s_closed else 0.0,
-                "avg_r":        round(r["avg_r"], 3)       if r["avg_r"]       is not None else None,
-                "net_pnl_inr":  round(r["net_pnl"], 2)    if r["net_pnl"]     is not None else None,
-                "avg_net_pnl":  round(r["avg_net_pnl"], 2) if r["avg_net_pnl"] is not None else None,
+                "total":       r["total"],
+                "wins":        s_wins,
+                "losses":      s_losses,
+                "win_rate":    round(s_wins / s_closed * 100, 1) if s_closed else 0.0,
+                "avg_r":       round(r["avg_r"], 3)        if r["avg_r"]       is not None else None,
+                "net_pnl_inr": round(r["net_pnl"], 2)     if r["net_pnl"]     is not None else None,
+                "avg_net_pnl": round(r["avg_net_pnl"], 2) if r["avg_net_pnl"] is not None else None,
             }
 
         return {
-            "total":            total,
-            "open":             open_cnt,
-            "won":              won,
-            "lost":             lost,
-            "squared_off":      squared_off,
-            "expired":          expired,
-            "win_rate":         win_rate,
-            "avg_r":            round(avg_r_row["avg_r"], 3) if avg_r_row["avg_r"] is not None else None,
-            "avg_net_pnl_inr":  round(pnl_row["avg_net_pnl"], 2)  if pnl_row["avg_net_pnl"]  is not None else None,
-            "total_net_pnl_inr":round(pnl_row["total_net_pnl"], 2) if pnl_row["total_net_pnl"] is not None else None,
-            "avg_cost_inr":     round(pnl_row["avg_cost"], 2)      if pnl_row["avg_cost"]      is not None else None,
-            "by_outcome":       by_outcome,
-            "by_strategy":      by_strategy,
+            "total":             total,
+            "open":              open_cnt,
+            "won":               won,
+            "lost":              lost,
+            "squared_off":       squared_off,
+            "expired":           expired,
+            "win_rate":          win_rate,
+            "avg_r":             round(avg_r_row["avg_r"], 3)        if avg_r_row and avg_r_row["avg_r"]       is not None else None,
+            "avg_net_pnl_inr":   round(pnl_row["avg_net_pnl"], 2)   if pnl_row   and pnl_row["avg_net_pnl"]  is not None else None,
+            "total_net_pnl_inr": round(pnl_row["total_net_pnl"], 2) if pnl_row   and pnl_row["total_net_pnl"] is not None else None,
+            "avg_cost_inr":      round(pnl_row["avg_cost"], 2)       if pnl_row   and pnl_row["avg_cost"]     is not None else None,
+            "by_outcome":        by_outcome,
+            "by_strategy":       by_strategy,
         }
 
+    def purge_non_trading_day_signals(self) -> int:
+        from data.market_status import ALL_HOLIDAYS
+        deleted = 0
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(conn, "SELECT DISTINCT signal_date FROM signal_log")
+                dates = cur.fetchall()
+                for row in dates:
+                    d_str = row["signal_date"]
+                    try:
+                        d = datetime.strptime(d_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    if d.weekday() >= 5 or d in ALL_HOLIDAYS:
+                        c = self._exec(conn, "DELETE FROM signal_log WHERE signal_date=?", (d_str,))
+                        deleted += c.rowcount
+        except Exception as exc:
+            logger.error(f"purge_non_trading_day_signals failed: {exc}")
+        if deleted:
+            logger.info(f"Purged {deleted} signal(s) from non-trading days.")
+        return deleted
 
-# ── Module-level singleton ─────────────────────────────────────────────────────
+
+# ── Singleton ──────────────────────────────────────────────────────────────────
 
 _instance: Optional[SignalLogger] = None
 
