@@ -89,7 +89,7 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
         # YTD return: from Jan 1 of current year
         jan1 = _dt.date(df.index[-1].year, 1, 1)
         ytd_df = df[df.index.date >= jan1]
-        ytd_pct: float | None = None
+        ytd_pct = None
         if not ytd_df.empty:
             ytd_base = float(ytd_df["Close"].iloc[0])
             ytd_pct  = (curr - ytd_base) / ytd_base * 100
