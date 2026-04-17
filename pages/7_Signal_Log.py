@@ -136,36 +136,26 @@ with st.sidebar:
                 except Exception as _e:
                     st.error(str(_e))
 
-# ── Auto-resolve stale signals ─────────────────────────────────────────────────
+# ── Auto-resolve open signals ──────────────────────────────────────────────────
 log       = get_signal_logger()
 today_str = _dt.date.today().isoformat()
 now_ist   = _dt.datetime.now(IST)
 market_closed = now_ist.hour > 15 or (now_ist.hour == 15 and now_ist.minute >= 31)
 
 _last_resolve   = st.session_state.get("_last_resolve_ts", 0)
-_should_resolve = (time.time() - _last_resolve) > 300  # at most every 5 min
+_should_resolve = (time.time() - _last_resolve) > 300  # throttle to once every 5 min
 
 if _should_resolve:
     open_all = log.get_open_signals()
-    stale = [
-        s for s in open_all
-        if s["signal_date"] < today_str                                  # any past-date open signal
-        or (s["signal_date"] == today_str                                # today's intraday after close
-            and s["timeframe"] == "INTRADAY"
-            and market_closed)
-    ]
-    if stale:
-        with st.spinner(f"Resolving {len(stale)} position(s)…"):
-            try:
-                from signals.outcome_tracker import update_open_signal_outcomes
-                n = update_open_signal_outcomes(position_size_inr=float(position_size))
-                st.session_state["_last_resolve_ts"] = time.time()
-                if n:
-                    st.rerun()
-            except Exception as _e:
-                st.warning(f"Auto-resolve failed: {_e}")
-    else:
-        st.session_state["_last_resolve_ts"] = time.time()
+    st.session_state["_last_resolve_ts"] = time.time()
+    if open_all:
+        try:
+            from signals.outcome_tracker import update_open_signal_outcomes
+            n = update_open_signal_outcomes(position_size_inr=float(position_size))
+            if n:
+                st.rerun()
+        except Exception as _e:
+            st.warning(f"Auto-resolve error: {_e}")
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 perf    = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
