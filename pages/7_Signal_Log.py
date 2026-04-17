@@ -277,7 +277,7 @@ st.divider()
 from data.market_status import is_market_open
 
 is_live = is_market_open()
-_pos_interval = 30 if is_live else None
+_pos_interval = 300 if is_live else None
 
 
 @st.fragment(run_every=_pos_interval)
@@ -297,7 +297,9 @@ def _open_positions_panel():
     st.subheader(f"Open Positions ({len(_open)})")
     if _is_live:
         _ts = _now.strftime("%H:%M:%S")
-        st.caption(f"↻ {_ts} IST · P&L updates every 30s")
+        st.caption(f"↻ {_ts} IST · updates every 5 min")
+
+    _triggered_any = False   # tracks whether any position hit target/stop (needs resolve)
 
     for sig in _open:
         ticker    = sig["ticker"]
@@ -310,6 +312,7 @@ def _open_positions_panel():
         is_long   = direction == "LONG"
         dir_color = "#00c896" if is_long else "#ff4d6d"
         dir_arrow = "↑" if is_long else "↓"
+        sl_dist   = abs(entry - stop)   # total SL distance
 
         curr_price = None
         if _is_live:
@@ -324,28 +327,39 @@ def _open_positions_panel():
                 else (entry - curr_price) / entry * 100
             )
             pnl_color = "#00c896" if pnl_pct >= 0 else "#ff4d6d"
+
+            # SL-distance-relative consumption (0 = at entry, 1 = at stop)
+            if sl_dist > 0:
+                sl_consumed = (
+                    (entry - curr_price) / sl_dist if is_long
+                    else (curr_price - entry) / sl_dist
+                )
+            else:
+                sl_consumed = 0.0
+
             if is_long:
                 if curr_price <= stop:
-                    sl, sc = "STOPPED", "#ff4d6d"
+                    sl, sc = "STOPPED", "#ff4d6d"; _triggered_any = True
                 elif curr_price >= t2:
-                    sl, sc = "T2 HIT",  "#00c896"
+                    sl, sc = "T2 HIT",  "#00c896"; _triggered_any = True
                 elif curr_price >= t1:
-                    sl, sc = "T1 HIT",  "#5AD8A6"
-                elif abs(curr_price - stop) / entry < 0.005:
+                    sl, sc = "T1 HIT",  "#5AD8A6"; _triggered_any = True
+                elif sl_consumed > 0.65:       # >65% of SL distance consumed
                     sl, sc = "NEAR SL", "#f0b429"
                 else:
                     sl, sc = "ACTIVE",  "#7c83fd"
             else:
                 if curr_price >= stop:
-                    sl, sc = "STOPPED", "#ff4d6d"
+                    sl, sc = "STOPPED", "#ff4d6d"; _triggered_any = True
                 elif curr_price <= t2:
-                    sl, sc = "T2 HIT",  "#00c896"
+                    sl, sc = "T2 HIT",  "#00c896"; _triggered_any = True
                 elif curr_price <= t1:
-                    sl, sc = "T1 HIT",  "#5AD8A6"
-                elif abs(curr_price - stop) / entry < 0.005:
+                    sl, sc = "T1 HIT",  "#5AD8A6"; _triggered_any = True
+                elif sl_consumed > 0.65:
                     sl, sc = "NEAR SL", "#f0b429"
                 else:
                     sl, sc = "ACTIVE",  "#7c83fd"
+
             curr_block   = (
                 f'<div style="text-align:center;">'
                 f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;'
@@ -407,6 +421,21 @@ def _open_positions_panel():
             f'</div></div>'
         )
         st.markdown(html, unsafe_allow_html=True)
+
+    # If any live price shows a trigger, resolve immediately so Trade Journal updates
+    if _triggered_any:
+        _tkey  = "_trigger_resolve_ts"
+        _tlast = st.session_state.get(_tkey, 0)
+        if time.time() - _tlast > 60:   # at most once per minute
+            try:
+                from signals.outcome_tracker import update_open_signal_outcomes
+                n = update_open_signal_outcomes(position_size_inr=float(position_size))
+                st.session_state[_tkey] = time.time()
+                st.session_state["_last_resolve_ts"] = time.time()
+                if n:
+                    st.rerun()          # full page rerun → Trade Journal refreshes
+            except Exception:
+                pass
 
     st.divider()
 
