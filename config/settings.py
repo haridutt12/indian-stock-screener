@@ -56,16 +56,22 @@ INTRADAY_LIQUID_STOCKS = 30   # Top N stocks by volume for intraday
 
 # Indices (yfinance tickers)
 INDICES = {
-    "Nifty 50": "^NSEI",
-    "Bank Nifty": "^NSEBANK",
-    "Sensex": "^BSESN",
-    "Nifty IT": "^CNXIT",
-    "Nifty Pharma": "^CNXPHARMA",
-    "Nifty FMCG": "^CNXFMCG",
-    "Nifty Auto": "^CNXAUTO",
-    "Nifty Metal": "^CNXMETAL",
-    "Nifty Realty": "^CNXREALTY",
-    "Nifty Energy": "^CNXENERGY",
+    "Nifty 50":       "^NSEI",
+    "Bank Nifty":     "^NSEBANK",
+    "Sensex":         "^BSESN",
+    "Nifty IT":       "^CNXIT",
+    "Nifty Pharma":   "^CNXPHARMA",
+    "Nifty FMCG":     "^CNXFMCG",
+    "Nifty Auto":     "^CNXAUTO",
+    "Nifty Metal":    "^CNXMETAL",
+    "Nifty Realty":   "^CNXREALTY",
+    "Nifty Energy":   "^CNXENERGY",
+    "Nifty Finance":  "^CNXFINANCE",
+    "Nifty Infra":    "^CNXINFRA",
+    "Nifty Media":    "^CNXMEDIA",
+    "Nifty MidCap":   "^CNXMIDCAP",
+    "Nifty SmallCap": "^CNXSMALLCAP",
+    "Nifty PSU Bank": "^CNXPSUBANK",
 }
 
 # Sector display names

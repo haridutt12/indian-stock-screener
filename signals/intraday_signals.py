@@ -78,6 +78,12 @@ def _orb_signal(
     if risk == 0:
         return None
 
+    # Validate SL is on the correct side of entry
+    if direction == "LONG" and stop_loss >= entry:
+        return None
+    if direction == "SHORT" and stop_loss <= entry:
+        return None
+
     target_1 = round(entry + (risk * MIN_RISK_REWARD if direction == "LONG" else -risk * MIN_RISK_REWARD), 2)
     target_2 = round(entry + (risk * MIN_RISK_REWARD * 1.5 if direction == "LONG" else -risk * MIN_RISK_REWARD * 1.5), 2)
     rr = round(abs(target_1 - entry) / risk, 2)
@@ -141,6 +147,15 @@ def _vwap_bounce_signal(
     entry = close
     stop_loss = round(entry - atr if direction == "LONG" else entry + atr, 2)
     risk = abs(entry - stop_loss)
+    if risk == 0:
+        return None
+
+    # Validate SL is on the correct side of entry
+    if direction == "LONG" and stop_loss >= entry:
+        return None
+    if direction == "SHORT" and stop_loss <= entry:
+        return None
+
     target_1 = round(entry + risk * MIN_RISK_REWARD if direction == "LONG" else entry - risk * MIN_RISK_REWARD, 2)
     target_2 = round(entry + risk * 2.5 if direction == "LONG" else entry - risk * 2.5, 2)
     rr = round(abs(target_1 - entry) / risk, 2) if risk > 0 else 0

@@ -212,7 +212,7 @@ def ytd_performance_chart(index_data: dict) -> go.Figure:
             x=df.index,
             y=pct.round(2),
             name=name,
-            line=dict(color=color, width=2.5),
+            line=dict(color=color, width=2.5, shape="spline", smoothing=1.2),
             mode="lines",
             hovertemplate=(
                 f"<b>{name}</b><br>"

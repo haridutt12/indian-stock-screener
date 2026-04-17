@@ -185,10 +185,7 @@ k6.metric("Net P&L",         net_pnl_str,
           help=f"After all transaction costs · ₹{position_size:,}/trade")
 
 if perf["total"] == 0:
-    st.info(
-        "No signals yet. Generate signals from **Swing Trades** or **Intraday Ideas** "
-        "— they are automatically saved here."
-    )
+    st.caption("No signals yet — generate signals from Swing Trades or Intraday Ideas and they appear here automatically.")
     st.stop()
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
@@ -252,7 +249,7 @@ with ch2:
         )
         st.plotly_chart(fig2, use_container_width=True)
     else:
-        st.info("No closed trades yet.")
+        st.caption("No closed trades yet.")
 
 # ── Strategy breakdown ─────────────────────────────────────────────────────────
 by_strat = perf.get("by_strategy", {})
@@ -277,7 +274,7 @@ st.divider()
 from data.market_status import is_market_open
 
 is_live = is_market_open()
-_pos_interval = 300 if is_live else None
+_pos_interval = 120 if is_live else None
 
 
 @st.fragment(run_every=_pos_interval)
@@ -297,7 +294,7 @@ def _open_positions_panel():
     st.subheader(f"Open Positions ({len(_open)})")
     if _is_live:
         _ts = _now.strftime("%H:%M:%S")
-        st.caption(f"↻ {_ts} IST · updates every 5 min")
+        st.caption(f"↻ {_ts} IST · updates every 2 min")
 
     _triggered_any = False   # tracks whether any position hit target/stop (needs resolve)
 
@@ -422,31 +419,36 @@ def _open_positions_panel():
         )
         st.markdown(html, unsafe_allow_html=True)
 
-    # If any live price shows a trigger, resolve immediately so Trade Journal updates
+    # Signal the page-level resolver that a trigger was detected — no st.rerun() here
+    # (calling st.rerun() inside a fragment navigates away from the current page)
     if _triggered_any:
-        _tkey  = "_trigger_resolve_ts"
-        _tlast = st.session_state.get(_tkey, 0)
-        if time.time() - _tlast > 60:   # at most once per minute
-            try:
-                from signals.outcome_tracker import update_open_signal_outcomes
-                n = update_open_signal_outcomes(position_size_inr=float(position_size))
-                st.session_state[_tkey] = time.time()
-                st.session_state["_last_resolve_ts"] = time.time()
-                if n:
-                    st.rerun()          # full page rerun → Trade Journal refreshes
-            except Exception:
-                pass
+        st.session_state["_trigger_detected"] = True
 
     st.divider()
 
 
 _open_positions_panel()
 
+# ── Page-level trigger resolver — runs after fragment, safe to st.rerun() ─────
+if st.session_state.pop("_trigger_detected", False):
+    _tkey  = "_trigger_resolve_ts"
+    _tlast = st.session_state.get(_tkey, 0)
+    if time.time() - _tlast > 60:
+        try:
+            from signals.outcome_tracker import update_open_signal_outcomes
+            n = update_open_signal_outcomes(position_size_inr=float(position_size))
+            st.session_state[_tkey] = time.time()
+            st.session_state["_last_resolve_ts"] = time.time()
+            if n:
+                st.rerun()
+        except Exception:
+            pass
+
 # ── Closed Trade Journal ───────────────────────────────────────────────────────
 st.subheader(f"Trade Journal — {len(closed_signals)} closed trades")
 
 if not closed_signals:
-    st.info("No closed trades yet for the selected filters.")
+    st.caption("No closed trades yet for the selected filters.")
     st.stop()
 
 rows = []

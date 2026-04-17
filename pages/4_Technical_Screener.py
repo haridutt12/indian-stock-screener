@@ -196,7 +196,6 @@ if should_run:
     st.session_state.tech_result_df = result_df
 
 if "tech_result_df" not in st.session_state:
-    st.info("Configure filters in the sidebar and click **Run Technical Scan**, or use a preset button above.")
     st.stop()
 
 result_df = st.session_state.tech_result_df.copy()
@@ -236,7 +235,7 @@ if sort_by in result_df.columns:
 st.subheader(f"Results: {len(result_df)} stocks")
 
 if result_df.empty:
-    st.info("No stocks match your criteria.")
+    st.warning("No stocks match your criteria.")
     st.stop()
 
 # Display columns

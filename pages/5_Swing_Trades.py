@@ -75,7 +75,7 @@ filtered = [s for s in signals
 st.subheader(f"Trade Signals: {len(filtered)} found")
 
 if not filtered:
-    st.info("No signals match your criteria. Try lowering confidence or broadening strategy filter.")
+    st.caption("No signals match your criteria. Try lowering confidence or broadening the strategy filter.")
     st.stop()
 
 # ── SIGNAL CARDS ───────────────────────────────────────────────────────────────

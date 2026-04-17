@@ -29,10 +29,9 @@ elif status["is_pre_market"]:
     st.warning(f"🟡 Pre-Market Session · Market opens at {status['market_open_time']}")
 else:
     st.error(f"🔴 {status['status_label']} · {status['datetime_ist']}")
-    st.info(
-        "Intraday signals are only generated during market hours "
-        f"({status['market_open_time']} – {status['market_close_time']}).\n\n"
-        "Come back when the market is open to see live trade ideas."
+    st.caption(
+        f"Intraday signals generate during market hours "
+        f"({status['market_open_time']} – {status['market_close_time']})."
     )
     st.subheader("What to expect during market hours:")
     st.markdown("""
@@ -83,11 +82,7 @@ m3.metric("Strategies", "ORB + VWAP Bounce")
 st.divider()
 
 if not signals:
-    st.info(
-        "No intraday setups found at the moment. "
-        "Signals appear when price breaks the opening range or bounces off VWAP with volume. "
-        "The page will refresh in 5 minutes."
-    )
+    st.caption("No setups found right now — signals appear when ORB or VWAP conditions trigger with volume.")
 else:
     st.subheader(f"Live Trade Signals ({len(signals)})")
     for signal in signals:

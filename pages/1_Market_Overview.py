@@ -59,7 +59,7 @@ for _name, _ticker in main_indices.items():
         hist_1y[_name] = _df
 
 # ── Fragment 1: major index cards — refreshes every 30 s during market ─────────
-_fast_interval = 300 if status["is_market_open"] else None
+_fast_interval = 120 if status["is_market_open"] else None
 
 
 @st.fragment(run_every=_fast_interval)
@@ -118,7 +118,7 @@ def _index_metrics():
 
     if _live:
         _ts = _dt.datetime.now(_IST).strftime("%H:%M:%S")
-        st.caption(f"↻ {_ts} IST · updates every 5 min")
+        st.caption(f"↻ {_ts} IST · updates every 2 min")
 
 
 _index_metrics()
@@ -134,7 +134,7 @@ if hist_1y:
 st.divider()
 
 # ── Fragment 2: sector tiles + heatmap + breadth + movers — every 2 min ────────
-_slow_interval = 300 if status["is_market_open"] else None
+_slow_interval = 120 if status["is_market_open"] else None
 
 
 @st.fragment(run_every=_slow_interval)
@@ -279,7 +279,7 @@ def _market_data():
 
     if _live:
         _ts = _dt.datetime.now(_IST).strftime("%H:%M:%S")
-        st.caption(f"↻ {_ts} IST · updates every 5 min")
+        st.caption(f"↻ {_ts} IST · updates every 2 min")
 
 
 _market_data()
