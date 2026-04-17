@@ -241,7 +241,7 @@ def ytd_performance_chart(index_data: dict) -> go.Figure:
             dict(count=1,  label="1M",  step="month", stepmode="backward"),
             dict(count=3,  label="3M",  step="month", stepmode="backward"),
             dict(count=6,  label="6M",  step="month", stepmode="backward"),
-            dict(step="ytd", label="YTD"),
+            dict(count=1, label="YTD", step="year", stepmode="todate"),
             dict(count=1,  label="1Y",  step="year",  stepmode="backward"),
         ],
     )
