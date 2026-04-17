@@ -28,8 +28,12 @@ st.caption(f"Fetched {len(news_items)} news items from multiple sources.")
 # ── SENTIMENT ANALYSIS (Claude if key set, else free VADER) ────────────────────
 engine = get_engine_name()
 with st.spinner(f"Analysing sentiment with {engine}…"):
-    news_text = format_news_for_claude(news_items, max_items=30)
-    sentiment = analyze_market_sentiment(news_text, news_items=news_items)
+    try:
+        news_text = format_news_for_claude(news_items, max_items=30)
+        sentiment = analyze_market_sentiment(news_text, news_items=news_items)
+    except Exception as _e:
+        st.warning("Sentiment analysis unavailable right now. Showing news feed only.")
+        sentiment = {}
 
 # Overall sentiment header
 overall = sentiment.get("overall_sentiment", 5)

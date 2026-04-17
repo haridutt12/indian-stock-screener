@@ -46,8 +46,15 @@ def get_sentiment_score():
 # ── GENERATE SIGNALS ───────────────────────────────────────────────────────────
 if run_btn or "swing_signals" not in st.session_state:
     with st.spinner("Running swing signal scan..."):
-        sentiment_score = get_sentiment_score()
-        signals = generate_swing_signals(tickers, sentiment_score=sentiment_score)
+        try:
+            sentiment_score = get_sentiment_score()
+        except Exception:
+            sentiment_score = 0.5
+        try:
+            signals = generate_swing_signals(tickers, sentiment_score=sentiment_score)
+        except Exception as _e:
+            st.error(f"Signal generation failed: {_e}. Please try again.")
+            signals = []
         st.session_state.swing_signals = signals
         st.session_state.swing_sentiment_score = sentiment_score
 

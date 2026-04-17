@@ -125,8 +125,11 @@ for col, (name, ticker) in zip(cols, main_indices.items()):
 # ── Combined YTD performance chart ─────────────────────────────────────────────
 if hist_1y:
     st.markdown("#### Index Performance Comparison")
-    fig_ytd = ytd_performance_chart(hist_1y)
-    st.plotly_chart(fig_ytd, use_container_width=True, key="ytd_chart")
+    try:
+        fig_ytd = ytd_performance_chart(hist_1y)
+        st.plotly_chart(fig_ytd, use_container_width=True, key="ytd_chart")
+    except Exception as _e:
+        st.info("Chart temporarily unavailable — data will appear on next refresh.")
 
 st.divider()
 

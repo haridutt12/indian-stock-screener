@@ -162,8 +162,11 @@ if should_run:
 
         if df is None or df.empty:
             continue
-        df_ind  = compute_indicators(df)
-        summary = get_technical_summary(df_ind)
+        try:
+            df_ind  = compute_indicators(df)
+            summary = get_technical_summary(df_ind)
+        except Exception:
+            continue
         if not summary:
             continue
 
