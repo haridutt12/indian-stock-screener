@@ -19,6 +19,14 @@ from config.settings import (
 logger = logging.getLogger(__name__)
 
 
+def _flatten(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse yfinance MultiIndex columns (Price, Ticker) → flat string names."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df.copy()
+        df.columns = df.columns.get_level_values(0)
+    return df
+
+
 def fetch_stock_data(
     tickers: list[str],
     period: str = YFINANCE_PERIOD_DAILY,
@@ -39,7 +47,7 @@ def fetch_stock_data(
             key = f"price:{ticker}:{period}:{interval}"
             cached = cache.get(key)
             if cached is not None:
-                results[ticker] = cached
+                results[ticker] = _flatten(cached)   # fix stale cached MultiIndex
             else:
                 to_fetch.append(ticker)
     else:
@@ -62,8 +70,7 @@ def fetch_stock_data(
                         df = raw.copy()
                     else:
                         df = raw[ticker].copy()
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                    df = _flatten(df)
                     df = df.dropna(how="all")
                     df.index = pd.to_datetime(df.index)
                     if not df.empty:
