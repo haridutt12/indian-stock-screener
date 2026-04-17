@@ -443,12 +443,6 @@ if open_signals:
                 except Exception as _e:
                     st.error(str(_e))
 
-    if is_live:
-        st.markdown(
-            '<meta http-equiv="refresh" content="60">',
-            unsafe_allow_html=True,
-        )
-
     st.divider()
 
 # ── Closed Trade Journal ───────────────────────────────────────────────────────
