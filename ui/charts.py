@@ -237,11 +237,11 @@ def ytd_performance_chart(index_data: dict) -> go.Figure:
         borderwidth=1,
         font=dict(color="#e2e8f0", size=12),
         buttons=[
-            dict(count=1,  label="1W",  step="week",  stepmode="backward"),
+            dict(count=7,  label="1W",  step="day",   stepmode="backward"),
             dict(count=1,  label="1M",  step="month", stepmode="backward"),
             dict(count=3,  label="3M",  step="month", stepmode="backward"),
             dict(count=6,  label="6M",  step="month", stepmode="backward"),
-            dict(count=1, label="YTD", step="year", stepmode="todate"),
+            dict(count=1,  label="YTD", step="year",  stepmode="todate"),
             dict(count=1,  label="1Y",  step="year",  stepmode="backward"),
         ],
     )
