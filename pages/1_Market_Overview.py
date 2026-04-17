@@ -6,12 +6,13 @@ Page 1: Market Overview
 - Top gainers and losers
 - Market status
 """
+import datetime as _dt
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 from data.fetcher import fetch_index_data, fetch_stock_data, get_top_gainers_losers
 from data.market_status import market_status, is_market_open
-from ui.charts import index_line_chart, sector_heatmap, market_breadth_gauge
+from ui.charts import index_line_chart, sector_heatmap, market_breadth_gauge, ytd_performance_chart
 from ui.components import index_metric_card
 from config.settings import INDICES
 from config.stock_universe import NIFTY_50
@@ -58,31 +59,74 @@ live = is_market_open()
 st.subheader("Major Indices")
 if live:
     st.caption("🟢 Live prices — refreshes every 5 minutes")
-main_indices = {k: v for k, v in INDICES.items() if k in ["Nifty 50", "Bank Nifty", "Sensex"]}
-cols = st.columns(len(main_indices))
 
+main_indices = {k: v for k, v in INDICES.items() if k in ["Nifty 50", "Bank Nifty", "Sensex"]}
+
+# Fetch 1Y history once for the combined chart + metric cards
+hist_1y: dict = {}
+for name, ticker in main_indices.items():
+    df = fetch_index_data(ticker, period="1y", interval="1d")
+    if df is not None and not df.empty:
+        hist_1y[name] = df
+
+# ── Metric cards ───────────────────────────────────────────────────────────────
+cols = st.columns(len(main_indices))
 for col, (name, ticker) in zip(cols, main_indices.items()):
-    with col:
-        df = fetch_index_data(ticker, period="5d", interval="1d")
-        if df is not None and len(df) >= 2:
-            if live:
-                quote = _live_quote(ticker)
-                curr = quote.get("price", float(df["Close"].iloc[-1]))
-                chg  = quote.get("change_pct", 0.0)
-                as_of_str = "Live"
-            else:
-                curr = float(df["Close"].iloc[-1])
-                prev = float(df["Close"].iloc[-2])
-                chg  = (curr - prev) / prev * 100
-                as_of = df.index[-1]
-                as_of_str = as_of.strftime("%d %b") if hasattr(as_of, "strftime") else str(as_of)[:10]
-            with st.container():
-                index_metric_card(name, curr, chg)
-                st.caption(f"As of {as_of_str}")
-                fig = index_line_chart(df.tail(90), name)
-                st.plotly_chart(fig, width="stretch", key=f"idx_{ticker}")
+    df = hist_1y.get(name)
+    if df is not None and len(df) >= 2:
+        if live:
+            quote = _live_quote(ticker)
+            curr     = quote.get("price", float(df["Close"].iloc[-1]))
+            day_chg  = quote.get("change_pct", 0.0)
+            as_of_str = "Live"
         else:
-            col.warning(f"{name}: No data")
+            curr      = float(df["Close"].iloc[-1])
+            prev_day  = float(df["Close"].iloc[-2])
+            day_chg   = (curr - prev_day) / prev_day * 100
+            as_of     = df.index[-1]
+            as_of_str = as_of.strftime("%d %b %Y") if hasattr(as_of, "strftime") else str(as_of)[:10]
+
+        # YTD return: from Jan 1 of current year
+        jan1 = _dt.date(df.index[-1].year, 1, 1)
+        ytd_df = df[df.index.date >= jan1]
+        ytd_pct: float | None = None
+        if not ytd_df.empty:
+            ytd_base = float(ytd_df["Close"].iloc[0])
+            ytd_pct  = (curr - ytd_base) / ytd_base * 100
+        ytd_label = f"YTD {ytd_pct:+.2f}%" if ytd_pct is not None else ""
+
+        day_arrow = "▲" if day_chg >= 0 else "▼"
+        day_color = "#00c896" if day_chg >= 0 else "#ff4d6d"
+        ytd_color = "#00c896" if (ytd_pct is None or ytd_pct >= 0) else "#ff4d6d"
+
+        with col:
+            st.markdown(
+                f'<div style="background:#1e2235;border-radius:12px;padding:16px 20px;'
+                f'border:1px solid rgba(255,255,255,0.07);margin-bottom:8px;">'
+                f'<div style="font-size:0.75rem;color:#6b7a99;font-weight:700;'
+                f'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">'
+                f'{name}</div>'
+                f'<div style="font-size:1.6rem;font-weight:800;color:#e2e8f0;'
+                f'letter-spacing:-0.02em;">{curr:,.2f}</div>'
+                f'<div style="display:flex;gap:12px;margin-top:6px;align-items:center;">'
+                f'<span style="font-size:0.9rem;font-weight:700;color:{day_color};">'
+                f'{day_arrow} {abs(day_chg):.2f}% today</span>'
+                + (f'<span style="font-size:0.8rem;color:{ytd_color};opacity:0.85;">{ytd_label}</span>'
+                   if ytd_label else '')
+                + f'</div>'
+                f'<div style="font-size:0.72rem;color:#6b7a99;margin-top:4px;">{as_of_str}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        with col:
+            st.warning(f"{name}: No data")
+
+# ── Combined YTD performance chart ─────────────────────────────────────────────
+if hist_1y:
+    st.markdown("#### Index Performance Comparison")
+    fig_ytd = ytd_performance_chart(hist_1y)
+    st.plotly_chart(fig_ytd, use_container_width=True, key="ytd_chart")
 
 st.divider()
 

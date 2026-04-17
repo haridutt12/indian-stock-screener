@@ -186,6 +186,99 @@ def index_line_chart(df: pd.DataFrame, name: str) -> go.Figure:
     return fig
 
 
+def ytd_performance_chart(index_data: dict) -> go.Figure:
+    """
+    Multi-index normalized % return chart with range selector.
+    index_data: {"Index Name": df_with_Close_column, ...}
+    All series normalized to 0% at the earliest date in the dataset.
+    """
+    INDEX_COLORS = {
+        "Nifty 50":   "#f0b429",
+        "Bank Nifty": "#00c896",
+        "Sensex":     "#7c83fd",
+    }
+    DEFAULT_COLORS = ["#f0b429", "#00c896", "#7c83fd", "#ff4d6d", "#2196F3"]
+
+    fig = go.Figure()
+
+    for idx, (name, df) in enumerate(index_data.items()):
+        if df is None or df.empty or "Close" not in df.columns:
+            continue
+        df = df.sort_index().dropna(subset=["Close"])
+        base = float(df["Close"].iloc[0])
+        pct = ((df["Close"] / base) - 1) * 100
+        color = INDEX_COLORS.get(name, DEFAULT_COLORS[idx % len(DEFAULT_COLORS)])
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=pct.round(2),
+            name=name,
+            line=dict(color=color, width=2.5),
+            mode="lines",
+            hovertemplate=(
+                f"<b>{name}</b><br>"
+                "Date: %{x|%d %b %Y}<br>"
+                "Return: %{y:+.2f}%<br>"
+                "Level: ₹%{customdata:,.0f}<extra></extra>"
+            ),
+            customdata=df["Close"].round(0).values,
+        ))
+
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="rgba(255,255,255,0.18)",
+        line_width=1,
+    )
+
+    rangeselector_style = dict(
+        bgcolor="#1e2235",
+        activecolor="#f0b429",
+        bordercolor="rgba(255,255,255,0.1)",
+        borderwidth=1,
+        font=dict(color="#e2e8f0", size=12),
+        buttons=[
+            dict(count=1,  label="1W",  step="week",  stepmode="backward"),
+            dict(count=1,  label="1M",  step="month", stepmode="backward"),
+            dict(count=3,  label="3M",  step="month", stepmode="backward"),
+            dict(count=6,  label="6M",  step="month", stepmode="backward"),
+            dict(step="ytd", label="YTD"),
+            dict(count=1,  label="1Y",  step="year",  stepmode="backward"),
+        ],
+    )
+
+    fig.update_layout(
+        template=CHART_THEME,
+        height=420,
+        margin=dict(l=50, r=30, t=50, b=30),
+        yaxis=dict(
+            title="% Return",
+            ticksuffix="%",
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.06)",
+            zeroline=False,
+        ),
+        xaxis=dict(
+            rangeselector=rangeselector_style,
+            rangeslider=dict(visible=True, thickness=0.04, bgcolor="#12151f"),
+            type="date",
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.04)",
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.04,
+            xanchor="right",
+            x=1,
+            font=dict(size=13),
+        ),
+        hovermode="x unified",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+    )
+    return fig
+
+
 def market_breadth_gauge(advances: int, declines: int) -> go.Figure:
     """Gauge chart for market breadth."""
     total = advances + declines
