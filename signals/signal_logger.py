@@ -162,7 +162,10 @@ class SignalLogger:
 
     def _open_conn(self):
         if _USE_PG:
-            return psycopg2.connect(_DATABASE_URL, cursor_factory=_pg_extras.RealDictCursor)
+            url = _DATABASE_URL
+            if "sslmode" not in url:
+                url += ("&" if "?" in url else "?") + "sslmode=require"
+            return psycopg2.connect(url, cursor_factory=_pg_extras.RealDictCursor)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
