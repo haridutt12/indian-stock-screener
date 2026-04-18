@@ -15,7 +15,7 @@ from signals.signal_models import TradeSignal
 from config.settings import (
     YFINANCE_PERIOD_INTRADAY, YFINANCE_INTERVAL_INTRADAY,
     ATR_PERIOD, MIN_RISK_REWARD, MAX_INTRADAY_SIGNALS,
-    VOLUME_SPIKE_MULTIPLIER, RSI_PERIOD,
+    VOLUME_SPIKE_MULTIPLIER, RSI_PERIOD, EMA_FAST, EMA_SLOW,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,163 @@ def _vwap_bounce_signal(
     )
 
 
+def _ema_crossover_signal(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_info: dict = None,
+) -> Optional[TradeSignal]:
+    """EMA Crossover signal — EMA9 crosses EMA21 with volume confirmation."""
+    if df is None or len(df) < 25:
+        return None
+
+    df_ind = compute_indicators(df)
+    ema9_col  = f"EMA_{EMA_FAST}"
+    ema21_col = f"EMA_{EMA_SLOW}"
+    atr_col   = f"ATR_{ATR_PERIOD}"
+
+    if ema9_col not in df_ind.columns or ema21_col not in df_ind.columns:
+        return None
+
+    latest = df_ind.iloc[-1]
+    prev   = df_ind.iloc[-2]
+
+    def _fv(col, row):
+        v = row.get(col)
+        return None if v is None or pd.isna(v) else float(v)
+
+    ema9_now  = _fv(ema9_col, latest);  ema9_prev  = _fv(ema9_col, prev)
+    ema21_now = _fv(ema21_col, latest); ema21_prev = _fv(ema21_col, prev)
+    atr       = _fv(atr_col, latest)
+    close     = float(latest["Close"])
+    vwap      = _fv("VWAP", latest)
+    vol_ratio = _fv("Volume_ratio", latest) or 1.0
+
+    if None in (ema9_now, ema21_now, ema9_prev, ema21_prev, atr):
+        return None
+    if vol_ratio < VOLUME_SPIKE_MULTIPLIER:
+        return None
+
+    direction = None
+    if ema9_prev <= ema21_prev and ema9_now > ema21_now:
+        if vwap is None or close > vwap:
+            direction = "LONG"
+    elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
+        if vwap is None or close < vwap:
+            direction = "SHORT"
+
+    if direction is None:
+        return None
+
+    entry     = close
+    stop_loss = round(entry - atr * 0.8 if direction == "LONG" else entry + atr * 0.8, 2)
+    risk      = abs(entry - stop_loss)
+    if risk == 0:
+        return None
+    if direction == "LONG"  and stop_loss >= entry: return None
+    if direction == "SHORT" and stop_loss <= entry: return None
+
+    target_1 = round(entry + risk * MIN_RISK_REWARD if direction == "LONG" else entry - risk * MIN_RISK_REWARD, 2)
+    target_2 = round(entry + risk * 2.5             if direction == "LONG" else entry - risk * 2.5, 2)
+    rr       = round(abs(target_1 - entry) / risk, 2)
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    cross_dir = "above" if direction == "LONG" else "below"
+    vwap_note = f" Price {'above' if direction == 'LONG' else 'below'} VWAP ({vwap:.2f})." if vwap else ""
+    reasoning = (
+        f"EMA Crossover {direction}: EMA{EMA_FAST} crossed {cross_dir} EMA{EMA_SLOW} "
+        f"with {vol_ratio:.1f}x volume.{vwap_note} "
+        f"Entry: {entry:.2f}, SL: {stop_loss:.2f}, T1: {target_1:.2f}."
+    )
+
+    return TradeSignal(
+        ticker=ticker, name=name, direction=direction,
+        entry_price=round(entry, 2), stop_loss=stop_loss,
+        target_1=target_1, target_2=target_2, risk_reward=rr,
+        confidence=4 if vol_ratio >= 2.5 else 3,
+        strategy="EMA Crossover", timeframe="INTRADAY",
+        technical_score=min(1.0, vol_ratio / 3.0),
+        fundamental_score=0.5, sentiment_score=0.5,
+        reasoning=reasoning, patterns=["EMA Crossover"],
+        current_price=close, sector=sector,
+    )
+
+
+def _supertrend_signal(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_info: dict = None,
+) -> Optional[TradeSignal]:
+    """Supertrend Signal — Supertrend just flipped bullish on the 5-min chart."""
+    if df is None or len(df) < 25:
+        return None
+
+    df_ind = compute_indicators(df)
+    if "Supertrend_dir" not in df_ind.columns or "Supertrend" not in df_ind.columns:
+        return None
+
+    latest  = df_ind.iloc[-1]
+    close   = float(latest["Close"])
+    st_dir  = latest.get("Supertrend_dir")
+
+    if st_dir != "bull":
+        return None
+
+    # Require a fresh flip within the last 5 candles
+    recent_dirs = df_ind["Supertrend_dir"].dropna().iloc[-6:]
+    if len(recent_dirs) < 2 or "bear" not in recent_dirs.iloc[:-1].values:
+        return None
+
+    atr_col = f"ATR_{ATR_PERIOD}"
+    rsi_col = f"RSI_{RSI_PERIOD}"
+
+    def _fv(col, row):
+        v = row.get(col)
+        return None if v is None or pd.isna(v) else float(v)
+
+    atr  = _fv(atr_col, latest)
+    rsi  = _fv(rsi_col, latest)
+    vwap = _fv("VWAP", latest)
+    st_val = _fv("Supertrend", latest)
+
+    if not atr:
+        return None
+    if rsi is not None and rsi > 72:
+        return None
+    if vwap is not None and close < vwap * 0.998:
+        return None
+
+    direction = "LONG"
+    stop_loss = round(st_val * 0.998, 2) if st_val else round(close - atr, 2)
+    risk      = abs(close - stop_loss)
+    if risk == 0 or stop_loss >= close:
+        return None
+
+    target_1 = round(close + risk * MIN_RISK_REWARD, 2)
+    target_2 = round(close + risk * 2.5, 2)
+    rr       = round((target_1 - close) / risk, 2)
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    st_str = f"{st_val:.2f}" if st_val else "N/A"
+    rsi_note = f" RSI {rsi:.0f}." if rsi else ""
+    reasoning = (
+        f"Supertrend flipped BULLISH: Price {close:.2f} above Supertrend support {st_str}.{rsi_note} "
+        f"Entry: {close:.2f}, SL: {stop_loss:.2f}, T1: {target_1:.2f}."
+    )
+
+    return TradeSignal(
+        ticker=ticker, name=name, direction=direction,
+        entry_price=round(close, 2), stop_loss=stop_loss,
+        target_1=target_1, target_2=target_2, risk_reward=rr,
+        confidence=4 if (rsi is not None and 50 <= rsi <= 65) else 3,
+        strategy="Supertrend Signal", timeframe="INTRADAY",
+        technical_score=0.7, fundamental_score=0.5, sentiment_score=0.5,
+        reasoning=reasoning, patterns=["Supertrend Bull"],
+        current_price=close, sector=sector,
+    )
+
+
 def generate_intraday_signals(
     tickers: list[str],
     fund_map: dict = None,
@@ -203,7 +360,7 @@ def generate_intraday_signals(
         df = price_data.get(ticker)
         fund_info = (fund_map or {}).get(ticker, {})
 
-        for strategy_fn in [_orb_signal, _vwap_bounce_signal]:
+        for strategy_fn in [_orb_signal, _vwap_bounce_signal, _ema_crossover_signal, _supertrend_signal]:
             try:
                 signal = strategy_fn(ticker, df, fund_info)
                 if signal:

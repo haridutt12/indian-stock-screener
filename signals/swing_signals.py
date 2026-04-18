@@ -102,6 +102,34 @@ def _compute_swing_signal(
     ):
         strategy = "Bullish Setup"
 
+    # Strategy 5: Golden Cross — SMA50 just crossed above SMA200 (within 20 bars)
+    # Fresh crossover signals the start of a new uptrend, not just continuation
+    elif (
+        sma50 is not None and sma200 is not None
+        and sma50 > sma200
+        and rsi is not None and 45 <= rsi <= 72
+        and len(df_ind) >= 21
+    ):
+        prev50  = _f(df_ind[f"SMA_{SMA_MID}"].iloc[-21])
+        prev200 = _f(df_ind[f"SMA_{SMA_LONG}"].iloc[-21])
+        if prev50 is not None and prev200 is not None and prev50 < prev200:
+            strategy = "Golden Cross"
+
+    # Strategy 6: Supertrend Reversal — Supertrend just flipped to bull (within 5 bars)
+    # MACD and RSI confirm the reversal momentum
+    elif (
+        "Supertrend_dir" in df_ind.columns
+        and macd_bullish is True
+        and rsi is not None and rsi < 70
+    ):
+        recent_dirs = df_ind["Supertrend_dir"].dropna().iloc[-6:]
+        if (
+            len(recent_dirs) >= 2
+            and recent_dirs.iloc[-1] == "bull"
+            and "bear" in recent_dirs.iloc[:-1].values
+        ):
+            strategy = "Supertrend Reversal"
+
     if strategy is None:
         return None
 
@@ -116,11 +144,10 @@ def _compute_swing_signal(
         return None
 
     # Confidence scoring (1-5)
-    # For Oversold Reversal the strength score reads bearish by design —
-    # use a neutral floor so oversold setups aren't unfairly penalised.
+    # Oversold Reversal and Supertrend Reversal read bearish by design — floor at neutral.
     raw_strength = summary.get("strength", 50)
-    if strategy == "Oversold Reversal":
-        raw_strength = max(raw_strength, 50)   # floor at neutral
+    if strategy in ("Oversold Reversal", "Supertrend Reversal"):
+        raw_strength = max(raw_strength, 50)
     tech_score = raw_strength / 100
 
     fund_composite = fund_scores.get("composite_score", 0.5)
