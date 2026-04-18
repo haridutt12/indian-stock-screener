@@ -35,10 +35,11 @@ else:
     )
     st.subheader("What to expect during market hours:")
     st.markdown("""
-    - **Opening Range Breakout (ORB)**: Signals when price breaks the first 15-min high/low with volume confirmation
+    - **Opening Range Breakout (ORB)**: Signals when price breaks the first 15-min high/low with volume
     - **VWAP Bounce**: Signals when price bounces off VWAP with RSI confirmation
-    - **Auto-refresh**: Page refreshes every 5 minutes
-    - **Top 30 liquid Nifty stocks** are scanned for intraday opportunities
+    - **EMA Crossover**: EMA9 crosses EMA21 on 5-min chart with volume and VWAP confirmation
+    - **Supertrend Signal**: Supertrend flips bullish on 5-min chart, price above VWAP
+    - **Top 30 liquid Nifty stocks** scanned every refresh
     """)
     st.stop()
 
@@ -77,7 +78,7 @@ with st.spinner(f"Scanning {len(liquid_tickers)} liquid stocks for intraday setu
 m1, m2, m3 = st.columns(3)
 m1.metric("Stocks Scanned", len(liquid_tickers))
 m2.metric("Signals Found", len(signals))
-m3.metric("Strategies", "ORB + VWAP Bounce")
+m3.metric("Strategies", "ORB · VWAP · EMA Cross · Supertrend")
 
 st.divider()
 
