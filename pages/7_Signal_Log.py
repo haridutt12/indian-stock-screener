@@ -186,6 +186,41 @@ k6.metric("Net P&L",         net_pnl_str,
 
 if perf["total"] == 0:
     st.caption("No signals yet — generate signals from Swing Trades or Intraday Ideas and they appear here automatically.")
+
+    with st.expander("🧪 Seed test data (verify DB connection)", expanded=False):
+        st.caption("Inserts a few sample trades to confirm the database pipeline is working end-to-end.")
+        if st.button("Insert sample trades", type="primary"):
+            from signals.signal_models import TradeSignal
+            _samples = [
+                TradeSignal(
+                    ticker="RELIANCE.NS", name="Reliance Industries", direction="LONG",
+                    entry_price=2850.0, stop_loss=2800.0, target_1=2950.0, target_2=3050.0,
+                    risk_reward=2.0, confidence=4, strategy="Trend Pullback",
+                    timeframe="SWING", technical_score=0.78, fundamental_score=0.72,
+                    sentiment_score=0.65, reasoning="Test seed trade", sector="Energy",
+                ),
+                TradeSignal(
+                    ticker="INFY.NS", name="Infosys", direction="LONG",
+                    entry_price=1540.0, stop_loss=1510.0, target_1=1600.0, target_2=1650.0,
+                    risk_reward=2.0, confidence=3, strategy="Volume Breakout",
+                    timeframe="SWING", technical_score=0.71, fundamental_score=0.80,
+                    sentiment_score=0.60, reasoning="Test seed trade", sector="IT",
+                ),
+                TradeSignal(
+                    ticker="HDFCBANK.NS", name="HDFC Bank", direction="SHORT",
+                    entry_price=1720.0, stop_loss=1750.0, target_1=1660.0, target_2=1620.0,
+                    risk_reward=2.0, confidence=3, strategy="Trend Pullback",
+                    timeframe="INTRADAY", technical_score=0.65, fundamental_score=0.68,
+                    sentiment_score=0.55, reasoning="Test seed trade", sector="Banking",
+                ),
+            ]
+            _n = log.log_signals(_samples)
+            if _n > 0:
+                st.success(f"Inserted {_n} sample trade(s) into the database. Reloading…")
+                st.rerun()
+            else:
+                st.warning("0 rows inserted — trades may already exist (duplicate signal IDs for today).")
+
     st.stop()
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
