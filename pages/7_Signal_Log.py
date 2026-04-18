@@ -66,7 +66,9 @@ with st.sidebar:
     timeframe     = None if timeframe_opt == "All" else timeframe_opt
 
     strategy_opts = ["All", "Opening Range Breakout", "VWAP Bounce",
-                     "Trend Pullback", "Volume Breakout", "Oversold Reversal", "Bullish Setup"]
+                     "EMA Crossover", "Supertrend Signal",
+                     "Trend Pullback", "Volume Breakout", "Oversold Reversal",
+                     "Bullish Setup", "Golden Cross", "Supertrend Reversal"]
     strategy_opt = st.selectbox("Strategy", strategy_opts)
     strategy     = None if strategy_opt == "All" else strategy_opt
 
