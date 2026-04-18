@@ -162,14 +162,29 @@ class SignalLogger:
 
     def _open_conn(self):
         if _USE_PG:
-            from urllib.parse import urlparse, unquote
-            p = urlparse(_DATABASE_URL)
+            from urllib.parse import unquote
+            # Manual parse — urlparse breaks when password contains '@'
+            # (Supabase-generated passwords often do). rfind('@') always
+            # splits on the LAST '@', correctly separating userinfo from host.
+            url = _DATABASE_URL
+            rest = url.split("://", 1)[1].partition("?")[0]   # strip scheme + query
+            at = rest.rfind("@")
+            userinfo, hostinfo = rest[:at], rest[at + 1:]
+            colon = userinfo.find(":")
+            user = unquote(userinfo[:colon])
+            password = unquote(userinfo[colon + 1:])
+            host_port, _, dbname = hostinfo.partition("/")
+            if ":" in host_port:
+                host, port_str = host_port.rsplit(":", 1)
+                port = int(port_str)
+            else:
+                host, port = host_port, 5432
             return psycopg2.connect(
-                host=p.hostname,
-                port=p.port or 5432,
-                dbname=(p.path or "/postgres").lstrip("/"),
-                user=unquote(p.username or ""),
-                password=unquote(p.password or ""),
+                host=host,
+                port=port,
+                dbname=dbname or "postgres",
+                user=user,
+                password=password,
                 sslmode="require",
                 connect_timeout=10,
                 cursor_factory=_pg_extras.RealDictCursor,
