@@ -83,7 +83,6 @@ if selected_sector != "All":
 # Apply preset or custom filters
 if preset_name != "Custom" and preset_name in PRESETS:
     result_df = PRESETS[preset_name](fund_df)
-    st.info(f"Using preset: **{preset_name}**")
 else:
     screener = StockScreener()
     if pe_min > 0:

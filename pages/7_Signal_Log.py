@@ -136,36 +136,26 @@ with st.sidebar:
                 except Exception as _e:
                     st.error(str(_e))
 
-# ── Auto-resolve stale signals ─────────────────────────────────────────────────
+# ── Auto-resolve open signals ──────────────────────────────────────────────────
 log       = get_signal_logger()
 today_str = _dt.date.today().isoformat()
 now_ist   = _dt.datetime.now(IST)
 market_closed = now_ist.hour > 15 or (now_ist.hour == 15 and now_ist.minute >= 31)
 
 _last_resolve   = st.session_state.get("_last_resolve_ts", 0)
-_should_resolve = (time.time() - _last_resolve) > 300  # at most every 5 min
+_should_resolve = (time.time() - _last_resolve) > 300  # throttle to once every 5 min
 
 if _should_resolve:
     open_all = log.get_open_signals()
-    stale = [
-        s for s in open_all
-        if s["signal_date"] < today_str                                  # any past-date open signal
-        or (s["signal_date"] == today_str                                # today's intraday after close
-            and s["timeframe"] == "INTRADAY"
-            and market_closed)
-    ]
-    if stale:
-        with st.spinner(f"Resolving {len(stale)} position(s)…"):
-            try:
-                from signals.outcome_tracker import update_open_signal_outcomes
-                n = update_open_signal_outcomes(position_size_inr=float(position_size))
-                st.session_state["_last_resolve_ts"] = time.time()
-                if n:
-                    st.rerun()
-            except Exception as _e:
-                st.warning(f"Auto-resolve failed: {_e}")
-    else:
-        st.session_state["_last_resolve_ts"] = time.time()
+    st.session_state["_last_resolve_ts"] = time.time()
+    if open_all:
+        try:
+            from signals.outcome_tracker import update_open_signal_outcomes
+            n = update_open_signal_outcomes(position_size_inr=float(position_size))
+            if n:
+                st.rerun()
+        except Exception as _e:
+            st.warning(f"Auto-resolve error: {_e}")
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 perf    = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
@@ -195,10 +185,7 @@ k6.metric("Net P&L",         net_pnl_str,
           help=f"After all transaction costs · ₹{position_size:,}/trade")
 
 if perf["total"] == 0:
-    st.info(
-        "No signals yet. Generate signals from **Swing Trades** or **Intraday Ideas** "
-        "— they are automatically saved here."
-    )
+    st.caption("No signals yet — generate signals from Swing Trades or Intraday Ideas and they appear here automatically.")
     st.stop()
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
@@ -262,7 +249,7 @@ with ch2:
         )
         st.plotly_chart(fig2, use_container_width=True)
     else:
-        st.info("No closed trades yet.")
+        st.caption("No closed trades yet.")
 
 # ── Strategy breakdown ─────────────────────────────────────────────────────────
 by_strat = perf.get("by_strategy", {})
@@ -283,17 +270,35 @@ if by_strat:
 
 st.divider()
 
-# ── Open Positions ─────────────────────────────────────────────────────────────
+# ── Open Positions — live fragment (no full-page refresh) ──────────────────────
 from data.market_status import is_market_open
 
 is_live = is_market_open()
+_pos_interval = 120 if is_live else None
 
-if open_signals:
-    st.subheader(f"Open Positions ({len(open_signals)})")
-    if is_live:
-        st.caption("Market is open · prices refresh on each page load")
 
-    for sig in open_signals:
+@st.fragment(run_every=_pos_interval)
+def _open_positions_panel():
+    _is_live = is_market_open()
+    _now     = _dt.datetime.now(IST)
+
+    # Re-fetch from DB on every tick — resolved positions disappear automatically
+    _open = [
+        s for s in log.get_open_signals()
+        if (timeframe is None or s["timeframe"] == timeframe)
+        and (strategy is None or s["strategy"] == strategy)
+    ]
+    if not _open:
+        return
+
+    st.subheader(f"Open Positions ({len(_open)})")
+    if _is_live:
+        _ts = _now.strftime("%H:%M:%S")
+        st.caption(f"↻ {_ts} IST · updates every 2 min")
+
+    _triggered_any = False   # tracks whether any position hit target/stop (needs resolve)
+
+    for sig in _open:
         ticker    = sig["ticker"]
         entry     = sig["entry_price"]
         stop      = sig["stop_loss"]
@@ -303,159 +308,147 @@ if open_signals:
         label     = ticker.replace(".NS", "")
         is_long   = direction == "LONG"
         dir_color = "#00c896" if is_long else "#ff4d6d"
+        dir_arrow = "↑" if is_long else "↓"
+        sl_dist   = abs(entry - stop)   # total SL distance
 
         curr_price = None
-        if is_live:
+        if _is_live:
             try:
                 curr_price = float(yf.Ticker(ticker).fast_info.last_price)
             except Exception:
                 pass
 
         if curr_price is not None:
-            pnl_pct = (
+            pnl_pct   = (
                 (curr_price - entry) / entry * 100 if is_long
                 else (entry - curr_price) / entry * 100
             )
             pnl_color = "#00c896" if pnl_pct >= 0 else "#ff4d6d"
 
-            # Status determination
+            # SL-distance-relative consumption (0 = at entry, 1 = at stop)
+            if sl_dist > 0:
+                sl_consumed = (
+                    (entry - curr_price) / sl_dist if is_long
+                    else (curr_price - entry) / sl_dist
+                )
+            else:
+                sl_consumed = 0.0
+
             if is_long:
                 if curr_price <= stop:
-                    status_label, status_color = "STOPPED", "#ff4d6d"
+                    sl, sc = "STOPPED", "#ff4d6d"; _triggered_any = True
                 elif curr_price >= t2:
-                    status_label, status_color = "T2 HIT", "#00c896"
+                    sl, sc = "T2 HIT",  "#00c896"; _triggered_any = True
                 elif curr_price >= t1:
-                    status_label, status_color = "T1 HIT", "#5AD8A6"
-                elif abs(curr_price - stop) / entry < 0.005:
-                    status_label, status_color = "NEAR SL", "#f0b429"
+                    sl, sc = "T1 HIT",  "#5AD8A6"; _triggered_any = True
+                elif sl_consumed > 0.65:       # >65% of SL distance consumed
+                    sl, sc = "NEAR SL", "#f0b429"
                 else:
-                    status_label, status_color = "ACTIVE", "#7c83fd"
+                    sl, sc = "ACTIVE",  "#7c83fd"
             else:
                 if curr_price >= stop:
-                    status_label, status_color = "STOPPED", "#ff4d6d"
+                    sl, sc = "STOPPED", "#ff4d6d"; _triggered_any = True
                 elif curr_price <= t2:
-                    status_label, status_color = "T2 HIT", "#00c896"
+                    sl, sc = "T2 HIT",  "#00c896"; _triggered_any = True
                 elif curr_price <= t1:
-                    status_label, status_color = "T1 HIT", "#5AD8A6"
-                elif abs(curr_price - stop) / entry < 0.005:
-                    status_label, status_color = "NEAR SL", "#f0b429"
+                    sl, sc = "T1 HIT",  "#5AD8A6"; _triggered_any = True
+                elif sl_consumed > 0.65:
+                    sl, sc = "NEAR SL", "#f0b429"
                 else:
-                    status_label, status_color = "ACTIVE", "#7c83fd"
+                    sl, sc = "ACTIVE",  "#7c83fd"
 
-            curr_block = (
+            curr_block   = (
                 f'<div style="text-align:center;">'
                 f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;'
                 f'text-transform:uppercase;letter-spacing:0.09em;margin-bottom:4px;">Current</div>'
                 f'<div style="font-size:1rem;font-weight:800;color:#e2e8f0;">₹{curr_price:,.2f}</div>'
                 f'<div style="font-size:0.8rem;font-weight:700;color:{pnl_color};margin-top:2px;">'
-                f'{pnl_pct:+.2f}%</div>'
-                f'</div>'
+                f'{pnl_pct:+.2f}%</div></div>'
             )
             status_block = (
-                f'<span style="background:{status_color}22;color:{status_color};'
-                f'border:1px solid {status_color}44;border-radius:6px;'
-                f'padding:4px 12px;font-size:0.78rem;font-weight:700;">'
-                f'{status_label}</span>'
+                f'<span style="background:{sc}22;color:{sc};border:1px solid {sc}44;'
+                f'border-radius:6px;padding:4px 12px;font-size:0.78rem;font-weight:700;">{sl}</span>'
             )
         else:
-            curr_block = (
+            curr_block   = (
                 f'<div style="text-align:center;">'
                 f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;'
                 f'text-transform:uppercase;letter-spacing:0.09em;margin-bottom:4px;">Current</div>'
-                f'<div style="font-size:0.85rem;color:#6b7a99;">Market closed</div>'
-                f'</div>'
+                f'<div style="font-size:0.85rem;color:#6b7a99;">Market closed</div></div>'
             )
             status_block = (
-                f'<span style="background:#7c83fd22;color:#7c83fd;'
-                f'border:1px solid #7c83fd44;border-radius:6px;'
-                f'padding:4px 12px;font-size:0.78rem;font-weight:700;">OPEN</span>'
+                f'<span style="background:#7c83fd22;color:#7c83fd;border:1px solid #7c83fd44;'
+                f'border-radius:6px;padding:4px 12px;font-size:0.78rem;font-weight:700;">OPEN</span>'
             )
 
-        days_held = (
-            (_dt.date.today() - _dt.date.fromisoformat(sig["signal_date"])).days
-        )
-        days_str = f"{days_held}d held" if days_held > 0 else "today"
+        days_held = (_dt.date.today() - _dt.date.fromisoformat(sig["signal_date"])).days
+        days_str  = f"{days_held}d held" if days_held > 0 else "today"
+        strat_str = f'{sig.get("strategy","")} · {sig.get("timeframe","")} · {days_str}'
 
         html = (
             f'<div style="background:linear-gradient(145deg,#1e2235,#181c2e);'
             f'border:1px solid rgba(255,255,255,0.07);border-left:4px solid {dir_color};'
             f'border-radius:14px;padding:16px 20px;margin:8px 0;">'
-
             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
             f'<div style="display:flex;align-items:center;gap:10px;">'
             f'<span style="font-size:1.1rem;font-weight:800;color:#e2e8f0;">{label}</span>'
             f'<span style="background:{dir_color}18;color:{dir_color};border:1px solid {dir_color}44;'
             f'border-radius:6px;padding:2px 8px;font-size:0.72rem;font-weight:700;">'
-            f'{"↑" if is_long else "↓"} {direction}</span>'
-            f'<span style="color:#6b7a99;font-size:0.75rem;">{sig.get("strategy","")} · {sig.get("timeframe","")} · {days_str}</span>'
-            f'</div>'
-            f'{status_block}'
-            f'</div>'
-
+            f'{dir_arrow} {direction}</span>'
+            f'<span style="color:#6b7a99;font-size:0.75rem;">{strat_str}</span>'
+            f'</div>{status_block}</div>'
             f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">'
-
             f'<div style="text-align:center;">'
             f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;'
             f'letter-spacing:0.09em;margin-bottom:4px;">Entry</div>'
-            f'<div style="font-size:1rem;font-weight:700;color:#e2e8f0;">₹{entry:,.2f}</div>'
-            f'</div>'
-
-            + curr_block +
-
-            f'<div style="text-align:center;">'
+            f'<div style="font-size:1rem;font-weight:700;color:#e2e8f0;">₹{entry:,.2f}</div></div>'
+            + curr_block
+            + f'<div style="text-align:center;">'
             f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;'
             f'letter-spacing:0.09em;margin-bottom:4px;">Stop Loss</div>'
-            f'<div style="font-size:1rem;font-weight:700;color:#ff4d6d;">₹{stop:,.2f}</div>'
-            f'</div>'
-
+            f'<div style="font-size:1rem;font-weight:700;color:#ff4d6d;">₹{stop:,.2f}</div></div>'
             f'<div style="text-align:center;">'
             f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;'
             f'letter-spacing:0.09em;margin-bottom:4px;">Target 1</div>'
-            f'<div style="font-size:1rem;font-weight:700;color:#00c896;">₹{t1:,.2f}</div>'
-            f'</div>'
-
+            f'<div style="font-size:1rem;font-weight:700;color:#00c896;">₹{t1:,.2f}</div></div>'
             f'<div style="text-align:center;">'
             f'<div style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;'
             f'letter-spacing:0.09em;margin-bottom:4px;">Target 2</div>'
-            f'<div style="font-size:1rem;font-weight:700;color:#4ade80;">₹{t2:,.2f}</div>'
-            f'</div>'
-
-            f'</div>'
-            f'</div>'
+            f'<div style="font-size:1rem;font-weight:700;color:#4ade80;">₹{t2:,.2f}</div></div>'
+            f'</div></div>'
         )
         st.markdown(html, unsafe_allow_html=True)
 
-    # Auto-resolve if market closed and there are intraday open signals
-    intraday_open = [s for s in open_signals if s["timeframe"] == "INTRADAY"]
-    market_close_time = now_ist.replace(hour=15, minute=31, second=0, microsecond=0)
-    if intraday_open and not is_live and now_ist >= market_close_time:
-        if st.button("Resolve Closed Positions", type="primary"):
-            with st.spinner("Resolving…"):
-                try:
-                    from signals.outcome_tracker import update_open_signal_outcomes
-                    n = update_open_signal_outcomes(
-                        timeframe="INTRADAY",
-                        position_size_inr=float(position_size),
-                    )
-                    st.success(f"Resolved {n} position(s).")
-                    st.session_state["_last_resolve_ts"] = 0
-                    st.rerun()
-                except Exception as _e:
-                    st.error(str(_e))
-
-    if is_live:
-        st.markdown(
-            '<meta http-equiv="refresh" content="60">',
-            unsafe_allow_html=True,
-        )
+    # Signal the page-level resolver that a trigger was detected — no st.rerun() here
+    # (calling st.rerun() inside a fragment navigates away from the current page)
+    if _triggered_any:
+        st.session_state["_trigger_detected"] = True
 
     st.divider()
+
+
+_open_positions_panel()
+
+# ── Page-level trigger resolver — runs after fragment, safe to st.rerun() ─────
+if st.session_state.pop("_trigger_detected", False):
+    _tkey  = "_trigger_resolve_ts"
+    _tlast = st.session_state.get(_tkey, 0)
+    if time.time() - _tlast > 60:
+        try:
+            from signals.outcome_tracker import update_open_signal_outcomes
+            n = update_open_signal_outcomes(position_size_inr=float(position_size))
+            st.session_state[_tkey] = time.time()
+            st.session_state["_last_resolve_ts"] = time.time()
+            if n:
+                st.rerun()
+        except Exception:
+            pass
 
 # ── Closed Trade Journal ───────────────────────────────────────────────────────
 st.subheader(f"Trade Journal — {len(closed_signals)} closed trades")
 
 if not closed_signals:
-    st.info("No closed trades yet for the selected filters.")
+    st.caption("No closed trades yet for the selected filters.")
     st.stop()
 
 rows = []

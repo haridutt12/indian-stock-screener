@@ -1,4 +1,4 @@
-streamlit>=1.35,<2.0
+streamlit>=1.37,<2.0
 plotly>=5.22
 yfinance>=0.2.40
 pandas>=2.0
@@ -10,3 +10,4 @@ python-dotenv>=1.0
 pytz>=2024.1
 requests>=2.31
 vaderSentiment>=3.3.2
+psycopg2-binary>=2.9
