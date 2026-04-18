@@ -162,10 +162,18 @@ class SignalLogger:
 
     def _open_conn(self):
         if _USE_PG:
-            url = _DATABASE_URL
-            if "sslmode" not in url:
-                url += ("&" if "?" in url else "?") + "sslmode=require"
-            return psycopg2.connect(url, cursor_factory=_pg_extras.RealDictCursor)
+            from urllib.parse import urlparse, unquote
+            p = urlparse(_DATABASE_URL)
+            return psycopg2.connect(
+                host=p.hostname,
+                port=p.port or 5432,
+                dbname=(p.path or "/postgres").lstrip("/"),
+                user=unquote(p.username or ""),
+                password=unquote(p.password or ""),
+                sslmode="require",
+                connect_timeout=10,
+                cursor_factory=_pg_extras.RealDictCursor,
+            )
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
@@ -196,14 +204,30 @@ class SignalLogger:
     # ── Schema init / migration ────────────────────────────────────────────────
 
     def _init_db(self):
+        global _USE_PG
         create_sql = _CREATE_TABLE_PG_SQL if _USE_PG else _CREATE_TABLE_SQL
-        with self._db_conn() as conn:
-            self._exec(conn, create_sql)
-            for stmt in _CREATE_INDEXES_SQL:
-                try:
-                    self._exec(conn, stmt)
-                except Exception:
-                    pass
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, create_sql)
+                for stmt in _CREATE_INDEXES_SQL:
+                    try:
+                        self._exec(conn, stmt)
+                    except Exception:
+                        pass
+        except Exception as pg_err:
+            if _USE_PG:
+                logger.error(f"PostgreSQL unavailable ({pg_err}). Falling back to SQLite.")
+                _USE_PG = False
+                self._db_path.parent.mkdir(parents=True, exist_ok=True)
+                with self._db_conn() as conn:
+                    self._exec(conn, _CREATE_TABLE_SQL)
+                    for stmt in _CREATE_INDEXES_SQL:
+                        try:
+                            self._exec(conn, stmt)
+                        except Exception:
+                            pass
+            else:
+                raise
 
         # Migrations — separate transaction per column to be safe
         for col, col_type in _MIGRATION_COLUMNS:
