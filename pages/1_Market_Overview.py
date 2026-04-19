@@ -158,14 +158,22 @@ def _market_data():
             curr = float(df["Close"].iloc[-1])
             chg  = (curr - float(df["Close"].iloc[-2])) / float(df["Close"].iloc[-2]) * 100
         sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr)})
-        arrow = "▲" if chg >= 0 else "▼"
-        color = "#26a69a" if chg >= 0 else "#ef5350"
+        arrow  = "▲" if chg >= 0 else "▼"
+        color  = "#00c896" if chg >= 0 else "#ff4d6d"
+        bg     = "rgba(0,200,150,0.07)" if chg >= 0 else "rgba(255,77,109,0.07)"
+        border = "rgba(0,200,150,0.2)"  if chg >= 0 else "rgba(255,77,109,0.2)"
+        # Shorten name
+        short = name.replace("Nifty ", "").replace("Nifty", "")
         with s_cols[i % 4]:
             st.markdown(
-                f'<div style="padding:8px;border-radius:6px;border:1px solid #333;margin:4px 0;">'
-                f'<b>{name}</b><br>'
-                f'<span style="color:{color};font-size:1.1em;">{arrow} {abs(chg):.2f}%</span>'
-                f'&nbsp;<span style="color:#aaa;font-size:0.85em;">{curr:,.2f}</span>'
+                f'<div style="background:{bg};border:1px solid {border};border-radius:12px;'
+                f'padding:12px 14px;margin:4px 0;border-top:3px solid {color};">'
+                f'<div style="color:#64748b;font-size:0.67rem;font-weight:700;'
+                f'text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px;">{short}</div>'
+                f'<div style="color:#e2e8f0;font-size:1rem;font-weight:700;'
+                f'letter-spacing:-0.01em;margin-bottom:4px;">{curr:,.0f}</div>'
+                f'<div style="color:{color};font-size:0.82rem;font-weight:700;">'
+                f'{arrow} {abs(chg):.2f}%</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -252,30 +260,41 @@ def _market_data():
     else:
         gainers, losers = [], []
 
+    def _mover_row(ticker, price, chg, is_gain):
+        sym   = ticker.replace(".NS", "")
+        color = "#00c896" if is_gain else "#ff4d6d"
+        bg    = "rgba(0,200,150,0.06)" if is_gain else "rgba(255,77,109,0.06)"
+        arrow = "▲" if is_gain else "▼"
+        return (
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:9px 12px;margin:4px 0;background:{bg};border-radius:8px;">'
+            f'<span style="font-weight:700;color:#e2e8f0;font-size:0.9rem;">{sym}</span>'
+            f'<div style="text-align:right;">'
+            f'<div style="color:#94a3b8;font-size:0.78rem;font-weight:500;">₹{price:,.2f}</div>'
+            f'<div style="color:{color};font-size:0.8rem;font-weight:700;">{arrow} {abs(chg):.2f}%</div>'
+            f'</div>'
+            f'</div>'
+        )
+
     with g_col:
-        st.markdown("**🟢 Top Gainers**")
-        for item in gainers:
-            chg = item["change_pct"]
-            st.markdown(
-                f'<div style="display:flex;justify-content:space-between;padding:4px 0;'
-                f'border-bottom:1px solid #222;">'
-                f'<span><b>{item["ticker"].replace(".NS","")}</b></span>'
-                f'<span><span style="color:#aaa;">₹{item["price"]:.2f}</span> '
-                f'<span style="color:#26a69a;">▲ {chg:.2f}%</span></span></div>',
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            '<div style="font-size:0.72rem;font-weight:700;color:#64748b;'
+            'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">'
+            '▲ Top Gainers</div>',
+            unsafe_allow_html=True,
+        )
+        rows = "".join(_mover_row(i["ticker"], i["price"], i["change_pct"], True) for i in gainers)
+        st.markdown(rows, unsafe_allow_html=True)
+
     with l_col:
-        st.markdown("**🔴 Top Losers**")
-        for item in losers:
-            chg = item["change_pct"]
-            st.markdown(
-                f'<div style="display:flex;justify-content:space-between;padding:4px 0;'
-                f'border-bottom:1px solid #222;">'
-                f'<span><b>{item["ticker"].replace(".NS","")}</b></span>'
-                f'<span><span style="color:#aaa;">₹{item["price"]:.2f}</span> '
-                f'<span style="color:#ef5350;">▼ {abs(chg):.2f}%</span></span></div>',
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            '<div style="font-size:0.72rem;font-weight:700;color:#64748b;'
+            'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">'
+            '▼ Top Losers</div>',
+            unsafe_allow_html=True,
+        )
+        rows = "".join(_mover_row(i["ticker"], i["price"], i["change_pct"], False) for i in losers)
+        st.markdown(rows, unsafe_allow_html=True)
 
     if _live:
         _ts = _dt.datetime.now(_IST).strftime("%H:%M:%S")
