@@ -32,7 +32,7 @@ with st.expander("📋 Strategy Criteria — What each strategy looks for", expa
 **Volume Breakout**
 - Price above SMA200 (uptrend confirmed)
 - RSI between 50–75 (building momentum)
-- Volume ≥ 2× 20-day average (institutional interest)
+- Volume ≥ 1.5× 20-day average
 
 **Oversold Reversal**
 - RSI below 40 (heavily sold off)
@@ -87,42 +87,19 @@ def get_sentiment_score():
 
 # ── GENERATE SIGNALS ───────────────────────────────────────────────────────────
 if run_btn or "swing_signals" not in st.session_state:
-    scan_status = st.status("Scanning stocks for swing setups...", expanded=True)
-    progress_bar = st.progress(0)
-    progress_text = st.empty()
-
-    def on_tick(ticker, strategies, done, total):
-        progress_bar.progress(done / total)
-        if strategies:
-            progress_text.markdown(f"Scanning **{ticker}** — matched: {', '.join(strategies)}")
-            scan_status.write(f"✅ **{ticker}**: {', '.join(strategies)}")
-        else:
-            progress_text.markdown(f"Scanning **{ticker}**...")
-
     try:
         sentiment_score = get_sentiment_score()
     except Exception:
         sentiment_score = 0.5
 
-    try:
-        signals = generate_swing_signals(
-            tickers,
-            sentiment_score=sentiment_score,
-            on_tick=on_tick,
-        )
-        strategies_found = set(s.strategy for s in signals)
-        scan_status.update(
-            label=f"Scan complete — {len(signals)} signals across {len(strategies_found)} strategies",
-            state="complete",
-            expanded=False,
-        )
-    except Exception as _e:
-        st.error(f"Signal generation failed: {_e}. Please try again.")
-        signals = []
-        scan_status.update(label="Scan failed", state="error")
-
-    progress_bar.empty()
-    progress_text.empty()
+    with st.spinner(f"Scanning {len(tickers)} stocks across 6 strategies..."):
+        try:
+            signals = generate_swing_signals(tickers, sentiment_score=sentiment_score)
+            strategies_found = set(s.strategy for s in signals)
+            st.success(f"Scan complete — {len(signals)} signals across {len(strategies_found)} strategies")
+        except Exception as _e:
+            st.error(f"Signal generation failed: {_e}. Please try again.")
+            signals = []
 
     st.session_state.swing_signals = signals
     st.session_state.swing_sentiment_score = sentiment_score
