@@ -120,6 +120,15 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
+
+    # Flatten MultiIndex columns that yfinance sometimes returns
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    # Remove duplicate columns after flattening (keep first occurrence)
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    if "Close" not in df.columns:
+        return df
     try:
         df[f"SMA_{SMA_SHORT}"] = _sma(df["Close"], SMA_SHORT)
         df[f"SMA_{SMA_MID}"] = _sma(df["Close"], SMA_MID)
