@@ -23,7 +23,7 @@ CACHE_TTL_SIGNALS = 300              # 5 min (intraday), refreshed by scheduler
 CACHE_DB_PATH = "data_store/cache.db"
 
 # yfinance settings
-YFINANCE_PERIOD_DAILY = "6mo"
+YFINANCE_PERIOD_DAILY = "2y"
 YFINANCE_PERIOD_INTRADAY = "5d"
 YFINANCE_INTERVAL_DAILY = "1d"
 YFINANCE_INTERVAL_INTRADAY = "5m"
