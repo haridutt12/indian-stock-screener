@@ -43,7 +43,7 @@ IST = pytz.timezone("Asia/Kolkata")
 
 SIGNALS_DB_PATH = Path("data_store/signals.db")
 
-# ── Outcome constants ──────────────────────────────────────────────────────────
+# ── Outcome constants ──────────────────────────────────────────────────────────────────
 OUTCOME_OPEN        = "OPEN"
 OUTCOME_TARGET1     = "TARGET1_HIT"
 OUTCOME_TARGET2     = "TARGET2_HIT"
@@ -53,7 +53,7 @@ OUTCOME_EXPIRED     = "EXPIRED"
 
 SWING_EXPIRY_DAYS = 7
 
-# ── Backend detection ──────────────────────────────────────────────────────────
+# ── Backend detection ────────────────────────────────────────────────────────────────
 
 def _resolve_db_url() -> Optional[str]:
     url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
@@ -80,7 +80,7 @@ try:
 except ImportError:
     logger.info("SignalLogger: psycopg2 not installed — using SQLite")
 
-# ── Schema ─────────────────────────────────────────────────────────────────────
+# ── Schema ───────────────────────────────────────────────────────────────────────
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS signal_log (
@@ -156,6 +156,21 @@ _CREATE_INDEXES_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_sl_timeframe    ON signal_log (timeframe)",
 ]
 
+_CREATE_PORTFOLIO_SQL = """
+CREATE TABLE IF NOT EXISTS user_portfolio (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_key    TEXT    NOT NULL,
+    stock_name  TEXT    NOT NULL,
+    ticker      TEXT    NOT NULL,
+    qty         INTEGER NOT NULL,
+    avg_price   REAL    NOT NULL,
+    UNIQUE(user_key, stock_name)
+)
+"""
+_CREATE_PORTFOLIO_PG_SQL = _CREATE_PORTFOLIO_SQL.replace(
+    "INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"
+)
+
 
 def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     # entry_price intentionally excluded — price fluctuates between scans,
@@ -164,7 +179,7 @@ def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:20]
 
 
-# ── SignalLogger ───────────────────────────────────────────────────────────────
+# ── SignalLogger ───────────────────────────────────────────────────────────────────────
 
 class SignalLogger:
     """Thread-safe signal log backed by SQLite (local) or PostgreSQL (production)."""
@@ -173,7 +188,7 @@ class SignalLogger:
         self._db_path = db_path
         self._init_db()
 
-    # ── Connection management ──────────────────────────────────────────────────
+    # ── Connection management ────────────────────────────────────────────────────────────
 
     def _open_conn(self):
         if _USE_PG:
@@ -231,7 +246,7 @@ class SignalLogger:
         cur.execute(sql, params)
         return cur
 
-    # ── Schema init / migration ────────────────────────────────────────────────
+    # ── Schema init / migration ─────────────────────────────────────────────────────────
 
     def _init_db(self):
         global _USE_PG
@@ -275,6 +290,14 @@ class SignalLogger:
             except Exception:
                 pass
 
+        # Portfolio table — created once, non-fatal if it fails
+        try:
+            _port_sql = _CREATE_PORTFOLIO_PG_SQL if _USE_PG else _CREATE_PORTFOLIO_SQL
+            with self._db_conn() as conn:
+                self._exec(conn, _port_sql)
+        except Exception as _pe:
+            logger.warning("user_portfolio table creation failed (non-fatal): %s", _pe)
+
         # Dedup migration — runs every startup, fully idempotent.
         # Step 1: try to create the unique index directly (no-op if it exists).
         # Step 2: if that fails because duplicates exist, delete them first, then retry.
@@ -306,7 +329,7 @@ class SignalLogger:
             except Exception as exc2:
                 logger.warning(f"Dedup migration failed (non-fatal): {exc2}")
 
-    # ── Write ──────────────────────────────────────────────────────────────────
+    # ── Write ──────────────────────────────────────────────────────────────────────────
 
     def log_signal(self, signal: "TradeSignal") -> bool:
         # Serialize per ticker so concurrent scans (scheduler + catchup) can't
@@ -451,7 +474,7 @@ class SignalLogger:
         except Exception as exc:
             logger.error(f"SignalLogger.update_outcome failed ({signal_id}): {exc}")
 
-    # ── Read ───────────────────────────────────────────────────────────────────
+    # ── Read ──────────────────────────────────────────────────────────────────────────
 
     def get_open_signals(self, timeframe: Optional[str] = None) -> list[dict]:
         # One row per ticker (MAX id wins) — one open position per stock, always.
@@ -740,6 +763,39 @@ class SignalLogger:
             logger.error("close_duplicate_open_positions failed: %s", exc)
             return 0
 
+    def save_portfolio(self, user_key: str, holdings: list[dict]) -> None:
+        """Persist a user's portfolio holdings (replace-all semantics)."""
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, "DELETE FROM user_portfolio WHERE user_key=?", (user_key,))
+                for h in holdings:
+                    self._exec(conn,
+                        "INSERT INTO user_portfolio (user_key, stock_name, ticker, qty, avg_price) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (user_key, h["name"], h["ticker"], int(h["qty"]), float(h["avg_price"])),
+                    )
+        except Exception as exc:
+            logger.error("save_portfolio failed: %s", exc)
+
+    def load_portfolio(self, user_key: str) -> list[dict]:
+        """Return saved holdings for a user, or [] if none / table missing."""
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(
+                    conn,
+                    "SELECT stock_name, ticker, qty, avg_price FROM user_portfolio "
+                    "WHERE user_key=? ORDER BY id",
+                    (user_key,),
+                )
+                return [
+                    {"name": r["stock_name"], "ticker": r["ticker"],
+                     "qty": r["qty"], "avg_price": r["avg_price"]}
+                    for r in cur.fetchall()
+                ]
+        except Exception as exc:
+            logger.error("load_portfolio failed: %s", exc)
+            return []
+
     def purge_non_trading_day_signals(self) -> int:
         """
         Purge INTRADAY-only signals logged on weekends/holidays.
@@ -775,7 +831,7 @@ class SignalLogger:
         return deleted
 
 
-# ── Singleton ──────────────────────────────────────────────────────────────────
+# ── Singleton ──────────────────────────────────────────────────────────────────────────
 
 _instance: Optional[SignalLogger] = None
 
