@@ -29,7 +29,7 @@ st.set_page_config(page_title="Signal Log · NiftyEdge", layout="wide", page_ico
 from ui.styles import inject_global_css, page_header, show_loading, auth_guard, user_sidebar; inject_global_css()
 auth_guard()
 
-# ── Module-level helpers ───────────────────────────────────────────────────────────────────────────────────
+# ── Module-level helpers ────────────────────────────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def _market_regime():
     """Detect current Nifty trend, daily volatility, and India VIX fear level."""
@@ -126,7 +126,7 @@ OUTCOME_BADGE = {
     OUTCOME_OPEN:        ("OPEN",    "#7c83fd"),
 }
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────────────────────────
+# ── Sidebar ──────────────────────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     timeframe_opt = st.selectbox("Timeframe", ["All", "SWING", "INTRADAY"])
@@ -146,7 +146,7 @@ with st.sidebar:
 
     st.divider()
     user_sidebar()
-# ── Core data ─────────────────────────────────────────────────────────────────────────────────────
+# ── Core data ─────────────────────────────────────────────────────────────────────────────────────────────
 log       = get_signal_logger()
 today_str = _dt.date.today().isoformat()
 now_ist   = _dt.datetime.now(IST)
@@ -193,7 +193,7 @@ signals = log.get_signals(timeframe=timeframe, days_back=days_back)
 open_signals   = [s for s in signals if s["outcome"] == OUTCOME_OPEN]
 closed_signals = [s for s in signals if s["outcome"] != OUTCOME_OPEN]
 
-# ── Page header ────────────────────────────────────────────────────────────────────────────────────
+# ── Page header ──────────────────────────────────────────────────────────────────────────────────────────────
 from data.market_status import is_market_open as _is_mkt_open
 _mkt_live = _is_mkt_open()
 _dot_col  = "#00c896" if _mkt_live else "#f0b429"
@@ -207,7 +207,7 @@ with hcol2:
     st.markdown("<div style='height:38px'></div>", unsafe_allow_html=True)
     _run_scan = st.button("▶ Run Scan Now", type="primary", use_container_width=True)
 
-# ── Run Scan ────────────────────────────────────────────────────────────────────────────────────────
+# ── Run Scan ────────────────────────────────────────────────────────────────────────────────────────────────
 if _run_scan:
     _gen_slot = show_loading("Running full Nifty 50 technical scan — RSI, MACD, Supertrend, volume anomalies…", "#f0b429")
     try:
@@ -233,12 +233,12 @@ if _run_scan:
                 pass
         st.rerun()
 
-# ── Signal Ranker ───────────────────────────────────────────────────────────────────────────────────────
+# ── Signal Ranker ───────────────────────────────────────────────────────────────────────────────────────────────────
 from signals.signal_ranker import rank_signals as _rank_signals
 
 _top3 = _rank_signals(open_signals)[:3]
 
-# ── TOP 3 PANEL ───────────────────────────────────────────────────────────────────────────────────────
+# ── TOP 3 PANEL ───────────────────────────────────────────────────────────────────────────────────────────────
 if _top3:
     st.markdown(
         '<div style="font-size:0.72rem;font-weight:700;color:#f0b429;'
@@ -358,7 +358,7 @@ if _top3:
 elif open_signals:
     pass  # signals exist but prices not fetched yet — tabs show them normally
 
-# ── Tabs ────────────────────────────────────────────────────────────────────────────────────────────
+# ── Tabs ───────────────────────────────────────────────────────────────────────────────────────────────────
 tab_live, tab_perf, tab_hist, tab_insights = st.tabs(["📍 Live Positions", "📊 Performance", "📜 History", "🧠 Insights"])
 
 # ╔═══════════════════════════════════════════════════════════════════════════════╗
@@ -630,6 +630,59 @@ with tab_live:
                         unsafe_allow_html=True,
                     )
 
+                # ── Square Off ───────────────────────────────────────────────────────────
+                _sqkey = f"_sqf_{sig['signal_id']}"
+                _sqbcol, _ = st.columns([1, 3])
+                with _sqbcol:
+                    if st.button(
+                        "⎋ Square Off",
+                        key=f"sqbtn_{sig['signal_id']}",
+                        use_container_width=True,
+                        help="Manually close this trade at a custom price",
+                    ):
+                        st.session_state[_sqkey] = not st.session_state.get(_sqkey, False)
+                        st.rerun()
+                if st.session_state.get(_sqkey, False):
+                    _def_sq_p = round(float(curr_price if curr_price is not None else entry), 2)
+                    _sqa, _sqb, _sqc, _sqd = st.columns([2, 1.8, 1, 0.8])
+                    with _sqa:
+                        _sq_price = st.number_input(
+                            "Exit price",
+                            min_value=0.01,
+                            value=_def_sq_p,
+                            format="%.2f",
+                            key=f"sqprice_{sig['signal_id']}",
+                            label_visibility="collapsed",
+                        )
+                    with _sqb:
+                        _sq_pnl = ((_sq_price - entry) / entry * 100) if is_long else ((entry - _sq_price) / entry * 100)
+                        _sq_pcol = "#00c896" if _sq_pnl >= 0 else "#ff4d6d"
+                        st.markdown(
+                            f'<div style="padding-top:28px;font-size:0.85rem;font-weight:700;color:{_sq_pcol};">'
+                            f'P&L: {_sq_pnl:+.2f}% · ₹{_sq_pnl/100*float(position_size):+,.0f}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with _sqc:
+                        if st.button("✓ Confirm", key=f"sqconf_{sig['signal_id']}", type="primary", use_container_width=True):
+                            from signals.trade_costs import compute_trade_cost as _ctc
+                            _costs = _ctc(
+                                entry_price=entry, exit_price=float(_sq_price),
+                                direction=direction, timeframe=sig.get("timeframe", "SWING"),
+                                position_size_inr=float(position_size), stop_loss=stop,
+                            )
+                            log.update_outcome(
+                                signal_id=sig["signal_id"], outcome=OUTCOME_SQUARED_OFF,
+                                outcome_price=float(_sq_price),
+                                outcome_at=_dt.datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                                pnl_r=_costs.get("net_pnl_r"), cost_breakdown=_costs,
+                            )
+                            st.session_state.pop(_sqkey, None)
+                            st.rerun(scope="app")
+                    with _sqd:
+                        if st.button("✗", key=f"sqcancel_{sig['signal_id']}", use_container_width=True):
+                            st.session_state.pop(_sqkey, None)
+                            st.rerun()
+
         _live_positions()
 
 
@@ -645,7 +698,7 @@ with tab_perf:
     net_pnl      = perf.get("total_net_pnl_inr")
     avg_r        = perf.get("avg_r")
 
-    # ── KPIs ───────────────────────────────────────────────────────────────────────────────────────
+    # ── KPIs ─────────────────────────────────────────────────────────────────────────────────────────────
     wr_col  = "#00c896" if total_closed > 0 and perf["win_rate"] >= 50 else "#ff4d6d" if total_closed > 0 else "#475569"
     pnl_col = "#00c896" if (net_pnl or 0) >= 0 else "#ff4d6d"
     r_col   = "#00c896" if (avg_r or 0) >= 0 else "#ff4d6d"
@@ -703,9 +756,9 @@ with tab_perf:
     )
     st.markdown(kpi_html, unsafe_allow_html=True)
 
-    # Data quality notice — show when expired signals are disproportionately high
+    # Data quality notice
     _expired_n = perf.get("expired", 0)
-    if _expired_n > 0 and total_closed > 0 and _expired_n > total_closed * 0.5:
+    if _expired_n > 0:
         st.markdown(
             f'<div style="background:rgba(240,180,41,0.06);border:1px solid rgba(240,180,41,0.15);'
             f'border-left:3px solid #f0b429;border-radius:10px;padding:10px 16px;'
@@ -739,7 +792,6 @@ with tab_perf:
             unsafe_allow_html=True,
         )
     elif total_closed == 0 and perf["open"] > 0:
-        # Signals exist but nothing has closed yet — tell the user why
         _oldest = min((s["signal_date"] for s in open_signals), default=today_str)
         try:
             _days_open = (_dt.date.today() - _dt.date.fromisoformat(_oldest)).days
@@ -763,7 +815,6 @@ with tab_perf:
             unsafe_allow_html=True,
         )
     else:
-        # ── Charts row ──────────────────────────────────────────────────────────────────────────────
         cc1, cc2 = st.columns(2)
 
         with cc1:
@@ -798,7 +849,6 @@ with tab_perf:
                     val = s.get("net_pnl_inr")
                     if val is None:
                         r    = s.get("pnl_r") or 0.0
-                        # Use actual SL distance as risk, not a hardcoded pct
                         risk_pct = (abs(s["entry_price"] - s["stop_loss"]) / s["entry_price"]
                                     if s.get("entry_price") and s.get("stop_loss") else 0.02)
                         val  = r * risk_pct * float(position_size)
@@ -826,7 +876,6 @@ with tab_perf:
             else:
                 st.caption("No closed trades yet.")
 
-        # ── Strategy breakdown ──────────────────────────────────────────────────────────────────────────────
         by_strat = perf.get("by_strategy", {})
         if by_strat:
             st.markdown(
@@ -863,7 +912,6 @@ with tab_hist:
     if not signals:
         st.caption("No signals in the selected period. Change the Period filter or run a scan.")
     else:
-        # Open/Closed filter
         _hist_n_open   = sum(1 for s in signals if s["outcome"] == OUTCOME_OPEN)
         _hist_n_closed = sum(1 for s in signals if s["outcome"] != OUTCOME_OPEN)
         _hist_view = st.radio(
@@ -879,7 +927,6 @@ with tab_hist:
         else:
             _hist_signals = signals
 
-        # Build table
         rows = []
         for s in sorted(_hist_signals, key=lambda x: (x["signal_date"], x.get("logged_at", "")), reverse=True):
             _outcome_lbl = OUTCOME_LABELS.get(s["outcome"], s["outcome"])
@@ -974,7 +1021,6 @@ with tab_insights:
     fear       = regime["fear"]
     vix_val    = regime["vix"]
 
-    # ── Market Regime Banner ────────────────────────────────────────────────────────────────────────────
     trend_col  = "#00c896" if trend == "BULLISH" else ("#ff4d6d" if trend == "BEARISH" else "#6b7a99")
     vol_col    = "#f0b429" if volatility == "HIGH" else ("#00c896" if volatility == "LOW" else "#94a3b8")
     fear_col   = "#ff4d6d" if fear == "FEARFUL" else ("#f0b429" if fear == "NEUTRAL" else "#00c896")
@@ -1004,14 +1050,12 @@ with tab_insights:
 
     st.markdown('<div style="margin-bottom:20px;"></div>', unsafe_allow_html=True)
 
-    # ── Strategy-Regime Matcher ────────────────────────────────────────────────────────────────────────────
     st.markdown(
         '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
         'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Strategy Suitability Right Now</div>',
         unsafe_allow_html=True,
     )
 
-    # Build per-strategy win rates from signal log — respects sidebar filters
     _all_sigs   = log.get_signals(timeframe=timeframe, days_back=days_back)
     _closed_90  = [s for s in _all_sigs if s["outcome"] not in (OUTCOME_OPEN, OUTCOME_EXPIRED)]
     _strat_stats: dict = {}
@@ -1032,7 +1076,6 @@ with tab_insights:
         stats = _strat_stats.get(strat, {})
         total = stats.get("total", 0)
         wr    = round(stats["wins"] / total * 100) if total >= 3 else None
-        # Combined recommendation
         if fit >= 70:
             rec, rec_c = "IDEAL",  "#00c896"
         elif fit >= 45:
@@ -1077,7 +1120,6 @@ with tab_insights:
 
     st.markdown('<div style="margin-bottom:20px;"></div>', unsafe_allow_html=True)
 
-    # ── Personal Bias Analysis ────────────────────────────────────────────────────────────────────────────
     st.markdown(
         '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
         'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Your Trading Patterns</div>',
@@ -1096,7 +1138,6 @@ with tab_insights:
             unsafe_allow_html=True,
         )
     else:
-        # LONG vs SHORT
         _long_all   = [s for s in _all_90 if s["direction"] == "LONG"]
         _short_all  = [s for s in _all_90 if s["direction"] == "SHORT"]
         _long_wins  = sum(
@@ -1116,7 +1157,6 @@ with tab_insights:
         _lwr = round(_long_wins  / _long_cl  * 100) if _long_cl  > 0 else None
         _swr = round(_short_wins / _short_cl * 100) if _short_cl > 0 else None
 
-        # Hold time
         _hold_days = []
         for s in _closed:
             try:
@@ -1127,14 +1167,12 @@ with tab_insights:
                 pass
         _avg_hold = round(sum(_hold_days) / len(_hold_days), 1) if _hold_days else None
 
-        # Sector concentration
         _sec_cnt: dict = {}
         for s in _all_90:
             sec = s.get("sector") or "Unknown"
             _sec_cnt[sec] = _sec_cnt.get(sec, 0) + 1
         _top_sec = sorted(_sec_cnt.items(), key=lambda x: x[1], reverse=True)[:3]
 
-        # Best/worst strategy (min 3 closed trades)
         _st_wr = {}
         for s in _closed:
             st_ = s["strategy"]
@@ -1153,7 +1191,6 @@ with tab_insights:
         _best_strat = _st_ranked[0]  if _st_ranked else None
         _worst_strat = _st_ranked[-1] if len(_st_ranked) > 1 else None
 
-        # Render bias cards
         bc1, bc2, bc3 = st.columns(3)
 
         with bc1:
