@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide",
 )
 
-from ui.styles import inject_global_css, auth_guard, user_sidebar
+from ui.styles import inject_global_css, auth_guard, user_sidebar, render_ai_card
 inject_global_css()
 auth_guard()
 
@@ -258,31 +258,6 @@ if go and chosen:
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt_text}],
             )
-        st.markdown("""<style>
-[data-testid="stVerticalBlockBorderWrapper"]{
-    background:linear-gradient(145deg,#1a1f35,#141828)!important;
-    border-color:rgba(255,255,255,0.08)!important;
-    border-radius:12px!important;
-}
-[data-testid="stVerticalBlockBorderWrapper"] h2{
-    color:#8b5cf6!important;font-size:0.72rem!important;font-weight:800!important;
-    text-transform:uppercase;letter-spacing:0.1em;
-    border-bottom:1px solid rgba(139,92,246,0.2);padding-bottom:6px;margin-top:1.4rem;
-}
-[data-testid="stVerticalBlockBorderWrapper"] h2:first-child{margin-top:0.4rem;}
-[data-testid="stVerticalBlockBorderWrapper"] p,
-[data-testid="stVerticalBlockBorderWrapper"] li{color:#cbd5e1;line-height:1.75;}
-[data-testid="stVerticalBlockBorderWrapper"] strong{color:#f1f5f9;}
-[data-testid="stVerticalBlockBorderWrapper"] table{width:100%;border-collapse:collapse;margin:8px 0;}
-[data-testid="stVerticalBlockBorderWrapper"] th,
-[data-testid="stVerticalBlockBorderWrapper"] td{
-    border:1px solid rgba(255,255,255,0.07);padding:8px 14px;font-size:0.85rem;
-}
-[data-testid="stVerticalBlockBorderWrapper"] tr:nth-child(even) td{
-    background:rgba(255,255,255,0.02);
-}
-</style>""", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown(response.choices[0].message.content)
+        render_ai_card(response.choices[0].message.content, accent="#8b5cf6")
     except Exception as exc:
         st.error(f"AI analysis failed: {exc}")
