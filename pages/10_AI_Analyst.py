@@ -169,18 +169,18 @@ def _universe():
 st.markdown(
     '<div style="margin-bottom:4px;">'
     '<span style="font-size:1.55rem;font-weight:900;color:#f1f5f9;letter-spacing:-0.03em;">'
-    '🤖 AI Stock Analyst</span></div>'
+    '\U0001f916 AI Stock Analyst</span></div>'
     '<div style="font-size:0.8rem;color:#64748b;margin-bottom:16px;">'
     'Instant AI trade analysis — trend, key levels, entry/SL/target &amp; risk factors '
     'for any Nifty 50/200 stock.</div>'
     '<div style="display:flex;gap:8px;margin-bottom:24px;">'
     '<a href="/AI_Analyst" style="flex:1;text-align:center;padding:9px 16px;'
     'background:#8b5cf6;color:#fff;border-radius:8px;text-decoration:none;'
-    'font-weight:700;font-size:0.78rem;letter-spacing:0.03em;">🤖 AI Stock Analyst</a>'
+    'font-weight:700;font-size:0.78rem;letter-spacing:0.03em;">\U0001f916 AI Stock Analyst</a>'
     '<a href="/Portfolio_Health" style="flex:1;text-align:center;padding:9px 16px;'
     'background:rgba(255,255,255,0.05);color:#64748b;border-radius:8px;'
     'text-decoration:none;font-weight:700;font-size:0.78rem;letter-spacing:0.03em;'
-    'border:1px solid rgba(255,255,255,0.07);">📊 Portfolio Health</a>'
+    'border:1px solid rgba(255,255,255,0.07);">\U0001f4ca Portfolio Health</a>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -211,7 +211,13 @@ if go and chosen:
         try:
             d = _fetch(ticker_ns)
         except Exception as exc:
-            st.error(f"Could not fetch data: {exc}")
+            _emsg = str(exc)
+            if "Insufficient price" in _emsg:
+                st.error(f"⚠️ Not enough price history for {chosen} — the stock may be newly listed.")
+            elif "No data" in _emsg or "empty" in _emsg.lower():
+                st.error(f"⚠️ No market data found for {chosen}. Try a different stock.")
+            else:
+                st.error(f"⚠️ Could not fetch market data: {_emsg}")
             st.stop()
 
     # ── Metrics strip ────────────────────────────────────────────────────────────
@@ -244,7 +250,7 @@ if go and chosen:
     st.markdown(
         '<div style="margin:16px 0 12px;border-top:1px solid rgba(255,255,255,0.06);"></div>'
         '<div style="font-size:0.65rem;font-weight:700;color:#8b5cf6;'
-        'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">🤖 AI Analysis</div>',
+        'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">\U0001f916 AI Analysis</div>',
         unsafe_allow_html=True,
     )
 
@@ -260,4 +266,14 @@ if go and chosen:
             )
         render_ai_card(response.choices[0].message.content, accent="#8b5cf6")
     except Exception as exc:
-        st.error(f"AI analysis failed: {exc}")
+        _aerr = str(exc)
+        if "rate_limit" in _aerr.lower() or "429" in _aerr:
+            st.error("⚠️ Groq API rate limit hit — wait a moment and click Analyse → again.")
+        elif "timeout" in _aerr.lower() or "timed out" in _aerr.lower():
+            st.error("⚠️ AI analysis timed out. Click Analyse → to retry.")
+        elif "auth" in _aerr.lower() or "api_key" in _aerr.lower():
+            st.error("⚠️ Invalid GROQ_API_KEY — check your key at console.groq.com")
+        else:
+            st.error(f"⚠️ AI analysis failed: {_aerr}")
+        if st.button("\U0001f504 Retry Analysis", type="primary"):
+            st.rerun()

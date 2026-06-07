@@ -8,7 +8,7 @@ from datetime import date
 
 st.set_page_config(
     page_title="Portfolio Health · NiftyEdge",
-    page_icon="📊",
+    page_icon="\U0001f4ca",
     layout="wide",
 )
 
@@ -185,7 +185,7 @@ Use specific numbers from the data. Do not add generic disclaimers about seeking
 st.markdown(
     '<div style="margin-bottom:4px;">'
     '<span style="font-size:1.55rem;font-weight:900;color:#f1f5f9;letter-spacing:-0.03em;">'
-    '📊 Portfolio Health Check</span></div>'
+    '\U0001f4ca Portfolio Health Check</span></div>'
     '<div style="font-size:0.8rem;color:#64748b;margin-bottom:16px;">'
     'Enter your holdings and get AI feedback — sector concentration, '
     'positions at risk &amp; a plain-English verdict on what to do next.</div>'
@@ -193,10 +193,10 @@ st.markdown(
     '<a href="/AI_Analyst" style="flex:1;text-align:center;padding:9px 16px;'
     'background:rgba(255,255,255,0.05);color:#64748b;border-radius:8px;'
     'text-decoration:none;font-weight:700;font-size:0.78rem;letter-spacing:0.03em;'
-    'border:1px solid rgba(255,255,255,0.07);">🤖 AI Stock Analyst</a>'
+    'border:1px solid rgba(255,255,255,0.07);">\U0001f916 AI Stock Analyst</a>'
     '<a href="/Portfolio_Health" style="flex:1;text-align:center;padding:9px 16px;'
     'background:#22c55e;color:#fff;border-radius:8px;text-decoration:none;'
-    'font-weight:700;font-size:0.78rem;letter-spacing:0.03em;">📊 Portfolio Health</a>'
+    'font-weight:700;font-size:0.78rem;letter-spacing:0.03em;">\U0001f4ca Portfolio Health</a>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -206,8 +206,30 @@ if not uni:
     st.error("Stock universe unavailable.")
     st.stop()
 
+
+def _portfolio_key() -> str:
+    try:
+        if st.user.is_logged_in:
+            return st.user.email or "guest"
+    except Exception:
+        pass
+    return "guest"
+
+
+def _save_portfolio(holdings: list) -> None:
+    try:
+        from signals.signal_logger import get_signal_logger
+        get_signal_logger().save_portfolio(_portfolio_key(), holdings)
+    except Exception:
+        pass
+
+
 if "portfolio" not in st.session_state:
-    st.session_state["portfolio"] = []
+    try:
+        from signals.signal_logger import get_signal_logger
+        st.session_state["portfolio"] = get_signal_logger().load_portfolio(_portfolio_key())
+    except Exception:
+        st.session_state["portfolio"] = []
 
 # ── Add position form ──────────────────────────────────────────────────────────────
 with st.expander("➕ Add Position", expanded=not st.session_state["portfolio"]):
@@ -236,6 +258,7 @@ with st.expander("➕ Add Position", expanded=not st.session_state["portfolio"])
             st.session_state["portfolio"].append(
                 {"name": sel_name, "ticker": ticker_ns, "qty": int(qty), "avg_price": float(avg_price)}
             )
+            _save_portfolio(st.session_state["portfolio"])
             st.rerun()
 
 holdings = st.session_state["portfolio"]
@@ -323,6 +346,29 @@ st.dataframe(
     },
 )
 
+# ── Edit positions ─────────────────────────────────────────────────────────────
+with st.expander("✏️ Edit Positions"):
+    for _h in holdings:
+        _ec1, _ec2, _ec3, _ec4 = st.columns([3, 1.2, 2, 1])
+        with _ec1:
+            st.markdown(
+                f'<div style="padding-top:6px;font-size:0.88rem;font-weight:600;color:#e2e8f0;">{_h["name"]}</div>',
+                unsafe_allow_html=True,
+            )
+        with _ec2:
+            _new_qty = st.number_input("Qty", value=_h["qty"], min_value=1, step=1,
+                                       key=f"eq_{_h['name']}", label_visibility="collapsed")
+        with _ec3:
+            _new_avg = st.number_input("Avg Price (₹)", value=float(_h["avg_price"]),
+                                       min_value=0.01, format="%.2f",
+                                       key=f"ea_{_h['name']}", label_visibility="collapsed")
+        with _ec4:
+            if st.button("Update", key=f"eu_{_h['name']}", use_container_width=True):
+                _h["qty"] = int(_new_qty)
+                _h["avg_price"] = float(_new_avg)
+                _save_portfolio(st.session_state["portfolio"])
+                st.rerun()
+
 # ── Remove positions ─────────────────────────────────────────────────────────────
 with st.expander("\U0001f5d1️ Remove Positions"):
     to_remove = st.multiselect("Select stocks to remove",
@@ -332,16 +378,17 @@ with st.expander("\U0001f5d1️ Remove Positions"):
         st.session_state["portfolio"] = [
             h for h in holdings if h["name"] not in to_remove
         ]
+        _save_portfolio(st.session_state["portfolio"])
         st.rerun()
 
 st.markdown(
     '<div style="margin:16px 0 12px;border-top:1px solid rgba(255,255,255,0.06);"></div>'
     '<div style="font-size:0.65rem;font-weight:700;color:#22c55e;'
-    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">🤖 AI Analysis</div>',
+    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">\U0001f916 AI Analysis</div>',
     unsafe_allow_html=True,
 )
 
-run_btn = st.button("🤖 Run AI Portfolio Analysis", type="primary")
+run_btn = st.button("\U0001f916 Run AI Portfolio Analysis", type="primary")
 
 if run_btn:
     api_key = (os.environ.get("GROQ_API_KEY") or
