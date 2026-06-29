@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-26T06:57:29.236217+00:00",
+  "updated_at": "2026-06-29T08:15:55.148068+00:00",
   "bulk_block_deals": [
     {
       "date": "2026-06-25",
@@ -2185,6 +2185,20 @@
   ],
   "fii_dii_flow": [
     {
+      "buy_cr": 24844.03,
+      "category": "DII",
+      "date": "2026-06-25",
+      "net_cr": 5747.75,
+      "sell_cr": 19096.28
+    },
+    {
+      "buy_cr": 18988.03,
+      "category": "FII/FPI",
+      "date": "2026-06-25",
+      "net_cr": 383.76,
+      "sell_cr": 18604.27
+    },
+    {
       "buy_cr": 16863.04,
       "category": "DII",
       "date": "2026-06-23",
@@ -2253,20 +2267,6 @@
       "date": "2026-06-03",
       "net_cr": -5616.56,
       "sell_cr": 22670.19
-    },
-    {
-      "buy_cr": 16893.1,
-      "category": "DII",
-      "date": "2026-05-27",
-      "net_cr": 3821.0,
-      "sell_cr": 13072.1
-    },
-    {
-      "buy_cr": 11418.65,
-      "category": "FII/FPI",
-      "date": "2026-05-27",
-      "net_cr": -1042.7,
-      "sell_cr": 12461.35
     }
   ],
   "insider_trades": [
@@ -2315,30 +2315,6 @@
       "disclosed": "2026-06-01",
       "Ownership": "D",
       "value_cr": 0.0,
-      "symbol": "INFY",
-      "company": "INFY"
-    },
-    {
-      "Shares": 411171,
-      "URL": "",
-      "txn": "",
-      "person": "Infosys Employee Benefits Trust",
-      "category": "Institution- Corporation",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "value_cr": 0.5,
-      "symbol": "INFY",
-      "company": "INFY"
-    },
-    {
-      "Shares": 30097822,
-      "URL": "",
-      "txn": "",
-      "person": "Nilekani (Nandan M)",
-      "category": "Promoter",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "value_cr": NaN,
       "symbol": "INFY",
       "company": "INFY"
     },
@@ -2403,16 +2379,64 @@
       "company": "HCLTECH"
     },
     {
-      "Shares": 2611,
+      "Shares": 335,
       "URL": "",
       "txn": "",
-      "person": "George (Bejoy Joseph)",
+      "person": "JSW Steel Employees Welfare Trust",
       "category": "UNREPORTED",
-      "disclosed": "2026-05-27",
+      "disclosed": "2026-06-24",
       "Ownership": "D",
       "value_cr": 0.0,
-      "symbol": "HCLTECH",
-      "company": "HCLTECH"
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 2303,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "UNREPORTED",
+      "disclosed": "2026-06-23",
+      "Ownership": "D",
+      "value_cr": 0.0,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 7685,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "UNREPORTED",
+      "disclosed": "2026-06-22",
+      "Ownership": "D",
+      "value_cr": 0.0,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 33,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "UNREPORTED",
+      "disclosed": "2026-06-19",
+      "Ownership": "D",
+      "value_cr": 0.0,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 698,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "UNREPORTED",
+      "disclosed": "2026-06-18",
+      "Ownership": "D",
+      "value_cr": 0.0,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
     },
     {
       "Shares": 131,
@@ -2559,40 +2583,28 @@
       "company": "JSWSTEEL"
     },
     {
-      "Shares": 3512,
+      "Shares": 300,
       "URL": "",
       "txn": "",
-      "person": "JSW Steel Employees Welfare Trust",
+      "person": "Kelitha (G)",
       "category": "UNREPORTED",
-      "disclosed": "2026-05-29",
+      "disclosed": "2026-06-19",
       "Ownership": "D",
       "value_cr": 0.0,
-      "symbol": "JSWSTEEL",
-      "company": "JSWSTEEL"
+      "symbol": "DIVISLAB",
+      "company": "DIVISLAB"
     },
     {
-      "Shares": 48,
+      "Shares": 300,
       "URL": "",
       "txn": "",
-      "person": "JSW Steel Employees Welfare Trust",
+      "person": "Praneeth (GV)",
       "category": "UNREPORTED",
-      "disclosed": "2026-05-27",
+      "disclosed": "2026-06-19",
       "Ownership": "D",
       "value_cr": 0.0,
-      "symbol": "JSWSTEEL",
-      "company": "JSWSTEEL"
-    },
-    {
-      "Shares": 123296333,
-      "URL": "",
-      "txn": "",
-      "person": "President of India",
-      "category": "Promoter",
-      "disclosed": "2026-05-29",
-      "Ownership": "D",
-      "value_cr": 58.42,
-      "symbol": "COALINDIA",
-      "company": "COALINDIA"
+      "symbol": "DIVISLAB",
+      "company": "DIVISLAB"
     },
     {
       "Shares": 68140,
@@ -2617,41 +2629,6 @@
       "value_cr": 0.0,
       "symbol": "DIVISLAB",
       "company": "DIVISLAB"
-    },
-    {
-      "Shares": 1000,
-      "URL": "",
-      "txn": "",
-      "person": "Saradhi (Pardha V)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "value_cr": 0.01,
-      "symbol": "DIVISLAB",
-      "company": "DIVISLAB"
-    },
-    {
-      "Shares": 1000,
-      "URL": "",
-      "txn": "",
-      "person": "Vani (Naga)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "value_cr": 0.01,
-      "symbol": "DIVISLAB",
-      "company": "DIVISLAB"
-    },
-    {
-      "Shares": 4011383,
-      "URL": "",
-      "txn": "",
-      "person": "Life Insurance Corporation Of India & Its Associate Funds",
-      "category": "Institution- Corporation",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "symbol": "HEROMOTOCO",
-      "company": "HEROMOTOCO"
     },
     {
       "Shares": 7307,
@@ -2712,24 +2689,12 @@
       "value_cr": 0.0,
       "symbol": "TATACONSUM",
       "company": "TATACONSUM"
-    },
-    {
-      "Shares": 24000,
-      "URL": "",
-      "txn": "",
-      "person": "Dsouza (Sunil)",
-      "category": "Director",
-      "disclosed": "2026-05-27",
-      "Ownership": "D",
-      "value_cr": 0.03,
-      "symbol": "TATACONSUM",
-      "company": "TATACONSUM"
     }
   ],
   "summary": {
     "bulk_count": 157,
     "block_count": 27,
     "fii_rows": 12,
-    "insider_count": 38
+    "insider_count": 35
   }
 }
