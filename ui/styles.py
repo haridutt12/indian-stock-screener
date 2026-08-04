@@ -658,19 +658,14 @@ def page_header(
     )
 
 
-def auth_guard() -> None:
-    """Show a login page and stop execution if the user is not authenticated.
-
-    No-op when auth is not configured in secrets (backward compatible for local dev).
-    """
+def _get_admin_email() -> str:
     try:
-        _auth_on = bool(st.secrets.get("auth"))
+        return (st.secrets.get("ADMIN_EMAIL") or "").strip().lower()
     except Exception:
-        _auth_on = False
+        return ""
 
-    if not _auth_on or st.user.is_logged_in:
-        return
 
+def _show_login_wall() -> None:
     st.markdown(
         '<div style="min-height:55vh;display:flex;align-items:center;justify-content:center;">'
         '<div style="text-align:center;max-width:400px;width:100%;">'
@@ -707,6 +702,58 @@ def auth_guard() -> None:
             unsafe_allow_html=True,
         )
     st.stop()
+
+
+def _show_access_denied(email: str) -> None:
+    st.markdown(
+        '<div style="min-height:55vh;display:flex;align-items:center;justify-content:center;">'
+        '<div style="text-align:center;max-width:440px;width:100%;padding:0 16px;">'
+        '<div style="font-size:2.8rem;margin-bottom:12px;">\U0001f6ab</div>'
+        '<div style="font-size:1.4rem;font-weight:800;color:#e2e8f0;margin-bottom:8px;">'
+        'Access Restricted</div>'
+        '<div style="color:#4b5a72;font-size:0.85rem;line-height:1.7;margin-bottom:28px;">'
+        f'<strong style="color:#94a3b8;">{email}</strong> is not on the access list.<br>'
+        'Please contact the administrator to request access.</div>'
+        '<div style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);'
+        'border-radius:12px;padding:14px 18px;font-size:0.75rem;color:#94a3b8;">'
+        'If you believe this is an error, try signing in with a different Google account.'
+        '</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    _, _btn_col, _ = st.columns([1, 2, 1])
+    with _btn_col:
+        if st.button("Sign out", key="ne_denied_signout", use_container_width=True):
+            st.logout()
+    st.stop()
+
+
+def auth_guard() -> None:
+    """Enforce authentication + allowlist. No-op when auth is not configured (local dev)."""
+    try:
+        _auth_on = bool(st.secrets.get("auth"))
+    except Exception:
+        _auth_on = False
+
+    if not _auth_on:
+        return
+
+    if not st.user.is_logged_in:
+        _show_login_wall()
+
+    _email = (getattr(st.user, "email", "") or "").strip().lower()
+    _admin = _get_admin_email()
+
+    if _email and _email == _admin:
+        return
+
+    try:
+        from signals.signal_logger import get_signal_logger
+        _log = get_signal_logger()
+        _allowed = _log.list_allowed_users()
+        if _allowed and not _log.is_user_allowed(_email):
+            _show_access_denied(_email)
+    except Exception:
+        pass
 
 
 def user_sidebar() -> None:

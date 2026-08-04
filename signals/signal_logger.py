@@ -171,6 +171,23 @@ _CREATE_PORTFOLIO_PG_SQL = _CREATE_PORTFOLIO_SQL.replace(
     "INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"
 )
 
+_CREATE_ALLOWED_USERS_SQL = """
+CREATE TABLE IF NOT EXISTS allowed_users (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    email     TEXT    NOT NULL UNIQUE,
+    name      TEXT    DEFAULT '',
+    added_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+"""
+_CREATE_ALLOWED_USERS_PG_SQL = """
+CREATE TABLE IF NOT EXISTS allowed_users (
+    id        SERIAL  PRIMARY KEY,
+    email     TEXT    NOT NULL UNIQUE,
+    name      TEXT    DEFAULT '',
+    added_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
 
 def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     # entry_price intentionally excluded — price fluctuates between scans,
@@ -297,6 +314,14 @@ class SignalLogger:
                 self._exec(conn, _port_sql)
         except Exception as _pe:
             logger.warning("user_portfolio table creation failed (non-fatal): %s", _pe)
+
+        # Allowed users table — non-fatal if creation fails
+        try:
+            _au_sql = _CREATE_ALLOWED_USERS_PG_SQL if _USE_PG else _CREATE_ALLOWED_USERS_SQL
+            with self._db_conn() as conn:
+                self._exec(conn, _au_sql)
+        except Exception as _aue:
+            logger.warning("allowed_users table creation failed (non-fatal): %s", _aue)
 
         # Dedup migration — runs every startup, fully idempotent.
         # Step 1: try to create the unique index directly (no-op if it exists).
@@ -794,6 +819,66 @@ class SignalLogger:
                 ]
         except Exception as exc:
             logger.error("load_portfolio failed: %s", exc)
+            return []
+
+    # ── Allowed users (access control) ──────────────────────────────────────────────────
+
+    def is_user_allowed(self, email: str) -> bool:
+        """Return True if email is in the allowed_users table (case-insensitive)."""
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(
+                    conn,
+                    "SELECT 1 FROM allowed_users WHERE LOWER(email)=LOWER(?)",
+                    (email.strip(),),
+                )
+                return cur.fetchone() is not None
+        except Exception as exc:
+            logger.error("is_user_allowed failed: %s", exc)
+            return False
+
+    def add_allowed_user(self, email: str, name: str = "") -> bool:
+        """Insert an email into the allowlist. Returns True on success, False if already exists."""
+        try:
+            with self._db_conn() as conn:
+                self._exec(
+                    conn,
+                    "INSERT OR IGNORE INTO allowed_users (email, name) VALUES (?, ?)",
+                    (email.strip().lower(), name.strip()),
+                )
+            return True
+        except Exception as exc:
+            logger.error("add_allowed_user failed: %s", exc)
+            return False
+
+    def remove_allowed_user(self, email: str) -> bool:
+        """Remove an email from the allowlist. Returns True on success."""
+        try:
+            with self._db_conn() as conn:
+                self._exec(
+                    conn,
+                    "DELETE FROM allowed_users WHERE LOWER(email)=LOWER(?)",
+                    (email.strip(),),
+                )
+            return True
+        except Exception as exc:
+            logger.error("remove_allowed_user failed: %s", exc)
+            return False
+
+    def list_allowed_users(self) -> list[dict]:
+        """Return all allowed users as list of dicts with keys: email, name, added_at."""
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(
+                    conn,
+                    "SELECT email, name, added_at FROM allowed_users ORDER BY added_at",
+                )
+                return [
+                    {"email": r["email"], "name": r["name"] or "", "added_at": r["added_at"]}
+                    for r in cur.fetchall()
+                ]
+        except Exception as exc:
+            logger.error("list_allowed_users failed: %s", exc)
             return []
 
     def purge_non_trading_day_signals(self) -> int:
