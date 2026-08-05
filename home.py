@@ -234,6 +234,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Personalized welcome ───────────────────────────────────────────────────────
+try:
+    _uname = (getattr(st.user, "name", "") or "").strip()
+    _fname = _uname.split()[0] if _uname else ""
+    if _fname:
+        _hour  = _dt.datetime.now(_IST).hour
+        _greet = "Good morning" if _hour < 12 else ("Good afternoon" if _hour < 17 else "Good evening")
+        st.markdown(
+            f'<div style="margin:-8px 0 18px;padding:10px 16px;'
+            f'background:linear-gradient(90deg,rgba(59,130,246,0.07),transparent);'
+            f'border-left:3px solid rgba(59,130,246,0.4);border-radius:0 8px 8px 0;">'
+            f'<span style="color:#94a3b8;font-size:0.82rem;">'
+            f'{_greet}, <strong style="color:#e2e8f0;">{_fname}</strong> 👋'
+            f'&nbsp;·&nbsp;Here\'s your market snapshot for today.</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
+
 # ── SVG icon library ───────────────────────────────────────────────────────────
 _SVG = {
     "swing":  '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="6" width="4" height="8" rx="1" fill="rgba(255,255,255,0.1)"/><line x1="5" y1="3" x2="5" y2="6"/><line x1="5" y1="14" x2="5" y2="17"/><rect x="13" y="9" width="4" height="5" rx="1" fill="rgba(255,255,255,0.05)"/><line x1="15" y1="6" x2="15" y2="9"/><line x1="15" y1="14" x2="15" y2="17"/></svg>',
