@@ -96,7 +96,6 @@ _catchup_signals()
 pg = st.navigation(
     [
         st.Page("home.py",                          title="Home",                 icon="🏠", default=True),
-        st.Page("pages/0_Admin_Panel.py",           title="Admin Panel",          icon="🛡️"),
         st.Page("pages/1_Market_Overview.py",       title="Market Overview",      icon="📊"),
         st.Page("pages/2_Smart_Money.py",           title="Smart Money",          icon="💰"),
         st.Page("pages/3_Signal_Log.py",            title="Signal Log",           icon="📋"),

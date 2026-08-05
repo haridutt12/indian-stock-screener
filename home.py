@@ -263,18 +263,35 @@ st.markdown(
 
 # ── Personalized welcome ───────────────────────────────────────────────────────
 try:
-    _uname = (getattr(st.user, "name", "") or "").strip()
-    _fname = _uname.split()[0] if _uname else ""
+    _uname  = (getattr(st.user, "name",    "") or "").strip()
+    _uemail = (getattr(st.user, "email",   "") or "").strip()
+    _uavatar= (getattr(st.user, "picture", "") or "").strip()
+    _fname  = _uname.split()[0] if _uname else (_uemail.split("@")[0] if _uemail else "")
     if _fname:
         _hour  = _dt.datetime.now(_IST).hour
         _greet = "Good morning" if _hour < 12 else ("Good afternoon" if _hour < 17 else "Good evening")
+        _avatar_html = (
+            f'<img src="{_uavatar}" style="width:36px;height:36px;border-radius:50%;'
+            f'object-fit:cover;border:2px solid rgba(59,130,246,0.35);flex-shrink:0;" />'
+            if _uavatar else
+            f'<div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;'
+            f'background:linear-gradient(135deg,#3b82f6,#22c55e);'
+            f'display:flex;align-items:center;justify-content:center;'
+            f'font-size:0.9rem;font-weight:700;color:#fff;">'
+            f'{_fname[0].upper()}</div>'
+        )
         st.markdown(
-            f'<div style="margin:-8px 0 18px;padding:10px 16px;'
-            f'background:linear-gradient(90deg,rgba(59,130,246,0.07),transparent);'
-            f'border-left:3px solid rgba(59,130,246,0.4);border-radius:0 8px 8px 0;">'
-            f'<span style="color:#94a3b8;font-size:0.82rem;">'
-            f'{_greet}, <strong style="color:#e2e8f0;">{_fname}</strong> 👋'
-            f'&nbsp;·&nbsp;Here\'s your market snapshot for today.</span>'
+            f'<div style="display:flex;align-items:center;gap:12px;'
+            f'margin:-8px 0 20px;padding:12px 18px;'
+            f'background:linear-gradient(90deg,rgba(59,130,246,0.08),rgba(34,197,94,0.04),transparent);'
+            f'border:1px solid rgba(59,130,246,0.12);border-radius:12px;">'
+            f'{_avatar_html}'
+            f'<div>'
+            f'<div style="font-size:0.95rem;font-weight:700;color:#e2e8f0;">'
+            f'{_greet}, {_fname}! 👋</div>'
+            f'<div style="font-size:0.72rem;color:#4b5a72;margin-top:1px;">'
+            f'Here\'s your personalised market snapshot for today.</div>'
+            f'</div>'
             f'</div>',
             unsafe_allow_html=True,
         )

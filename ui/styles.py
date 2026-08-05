@@ -658,35 +658,56 @@ def page_header(
     )
 
 
-def _get_admin_email() -> str:
+def auth_guard() -> None:
+    """Show login wall if not authenticated. No-op when auth is not configured (local dev)."""
     try:
-        return (st.secrets.get("ADMIN_EMAIL") or "").strip().lower()
+        _auth_on = bool(st.secrets.get("auth"))
     except Exception:
-        return ""
+        _auth_on = False
 
+    if not _auth_on or st.user.is_logged_in:
+        return
 
-def _show_login_wall() -> None:
+    # ── Login wall ────────────────────────────────────────────────────────────
     st.markdown(
-        '<div style="min-height:55vh;display:flex;align-items:center;justify-content:center;">'
-        '<div style="text-align:center;max-width:400px;width:100%;">'
-        '<div style="font-size:2.4rem;font-weight:900;letter-spacing:-0.05em;'
+        '<div style="min-height:60vh;display:flex;align-items:center;justify-content:center;">'
+        '<div style="text-align:center;max-width:420px;width:100%;padding:0 16px;">'
+
+        # Logo
+        '<div style="font-size:2.6rem;font-weight:900;letter-spacing:-0.05em;'
         'color:#e2e8f0;margin-bottom:4px;">'
         'Nifty<span style="background:linear-gradient(135deg,#3b82f6,#22c55e);'
         '-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Edge</span></div>'
         '<div style="color:#4b5a72;font-size:0.68rem;font-weight:700;'
-        'letter-spacing:0.13em;margin-bottom:36px;">AI-POWERED NSE / BSE ANALYSIS</div>'
+        'letter-spacing:0.13em;margin-bottom:40px;">AI-POWERED NSE / BSE ANALYSIS</div>'
+
+        # Card
         '<div style="background:linear-gradient(145deg,#0c1422,#111d2e);'
-        'border:1px solid rgba(255,255,255,0.07);border-radius:20px;'
-        'padding:32px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.5);text-align:left;">'
-        '<div style="font-size:1.05rem;font-weight:700;color:#e2e8f0;margin-bottom:10px;">'
-        '\U0001f510 Sign in to continue</div>'
-        '<div style="color:#4b5a72;font-size:0.8rem;line-height:1.7;">'
-        'Access smart money flows · FII/DII data · Swing &amp; intraday signals · '
-        'Your personal trade journal.</div>'
+        'border:1px solid rgba(255,255,255,0.08);border-radius:20px;'
+        'padding:36px 32px;box-shadow:0 24px 64px rgba(0,0,0,0.5);">'
+
+        '<div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:8px;">'
+        'Welcome back \U0001f44b</div>'
+        '<div style="color:#4b5a72;font-size:0.82rem;line-height:1.75;margin-bottom:28px;">'
+        'Sign in with your Google account to access your personalised '
+        'signals dashboard, trade journal, and market intelligence.</div>'
+
+        # Feature pills
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:28px;">'
+        + "".join([
+            f'<span style="background:rgba(59,130,246,0.08);color:#64748b;'
+            f'border:1px solid rgba(59,130,246,0.15);border-radius:20px;'
+            f'padding:3px 10px;font-size:0.65rem;font-weight:600;">{t}</span>'
+            for t in ["Swing Signals", "Intraday Ideas", "Trade Journal",
+                      "AI Analyst", "Portfolio Health", "Market Overview"]
+        ])
+        + '</div>'
+
         '</div></div></div>',
         unsafe_allow_html=True,
     )
-    _, _btn_col, _ = st.columns([1, 1.5, 1])
+
+    _, _btn_col, _ = st.columns([1, 1.4, 1])
     with _btn_col:
         st.button(
             "Continue with Google →",
@@ -697,63 +718,11 @@ def _show_login_wall() -> None:
             key="ne_login_btn",
         )
         st.markdown(
-            '<p style="color:#374151;font-size:0.65rem;text-align:center;margin-top:2px;">'
-            'Secure · Google OAuth 2.0</p>',
+            '<p style="color:#374151;font-size:0.65rem;text-align:center;margin-top:4px;">'
+            'Secure · Google OAuth 2.0 · No password needed</p>',
             unsafe_allow_html=True,
         )
     st.stop()
-
-
-def _show_access_denied(email: str) -> None:
-    st.markdown(
-        '<div style="min-height:55vh;display:flex;align-items:center;justify-content:center;">'
-        '<div style="text-align:center;max-width:440px;width:100%;padding:0 16px;">'
-        '<div style="font-size:2.8rem;margin-bottom:12px;">\U0001f6ab</div>'
-        '<div style="font-size:1.4rem;font-weight:800;color:#e2e8f0;margin-bottom:8px;">'
-        'Access Restricted</div>'
-        '<div style="color:#4b5a72;font-size:0.85rem;line-height:1.7;margin-bottom:28px;">'
-        f'<strong style="color:#94a3b8;">{email}</strong> is not on the access list.<br>'
-        'Please contact the administrator to request access.</div>'
-        '<div style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);'
-        'border-radius:12px;padding:14px 18px;font-size:0.75rem;color:#94a3b8;">'
-        'If you believe this is an error, try signing in with a different Google account.'
-        '</div></div></div>',
-        unsafe_allow_html=True,
-    )
-    _, _btn_col, _ = st.columns([1, 2, 1])
-    with _btn_col:
-        if st.button("Sign out", key="ne_denied_signout", use_container_width=True):
-            st.logout()
-    st.stop()
-
-
-def auth_guard() -> None:
-    """Enforce authentication + allowlist. No-op when auth is not configured (local dev)."""
-    try:
-        _auth_on = bool(st.secrets.get("auth"))
-    except Exception:
-        _auth_on = False
-
-    if not _auth_on:
-        return
-
-    if not st.user.is_logged_in:
-        _show_login_wall()
-
-    _email = (getattr(st.user, "email", "") or "").strip().lower()
-    _admin = _get_admin_email()
-
-    if _email and _email == _admin:
-        return
-
-    try:
-        from signals.signal_logger import get_signal_logger
-        _log = get_signal_logger()
-        _allowed = _log.list_allowed_users()
-        if _allowed and not _log.is_user_allowed(_email):
-            _show_access_denied(_email)
-    except Exception:
-        pass
 
 
 def user_sidebar() -> None:
