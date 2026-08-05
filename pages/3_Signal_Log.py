@@ -166,11 +166,11 @@ try:
 except Exception:
     pass
 
-# Auto-resolve: always run for stale signals, otherwise throttle to 5 min
+# Auto-resolve: always run when market is open or signals are stale; throttle to 5 min otherwise
 _open_all   = log.get_open_signals()
 _last_res   = st.session_state.get("_last_resolve_ts", 0)
 _has_stale  = any(s["signal_date"] < today_str for s in _open_all)
-_should_res = _has_stale or (time.time() - _last_res) > 300
+_should_res = _has_stale or _mkt_live or (time.time() - _last_res) > 300
 
 if _should_res and _open_all:
     try:
@@ -190,7 +190,9 @@ if st.session_state.get("_resolve_error"):
 
 perf    = log.get_performance_summary(timeframe=timeframe, days_back=days_back)
 signals = log.get_signals(timeframe=timeframe, days_back=days_back)
-open_signals   = [s for s in signals if s["outcome"] == OUTCOME_OPEN]
+# Use get_open_signals() for open positions — it enforces one per ticker via GROUP BY.
+# Never derive open positions from get_signals() which can contain historical duplicates.
+open_signals   = _open_all
 closed_signals = [s for s in signals if s["outcome"] != OUTCOME_OPEN]
 
 # ── Page header ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -442,6 +444,7 @@ with tab_live:
         @st.fragment(run_every=120 if _mkt_live else None)
         def _live_positions():
             _is_live = _is_mkt_open()
+            _auto_resolve_ids = []  # signal_ids where price has hit SL/T1/T2
             for sig in _open_filtered:
                 ticker    = sig["ticker"]
                 entry     = sig["entry_price"]
@@ -507,6 +510,10 @@ with tab_live:
                         elif days_held >= 3 and abs((entry - curr_price) / entry * 100) < 1.5:
                                                                                 status_l, status_c = "STALE",      "#64748b"
                         else:                                                   status_l, status_c = "ACTIVE",     "#7c83fd"
+
+                    # Queue auto-resolution if price has crossed a terminal level
+                    if status_l in ("STOPPED", "T1 HIT", "T2 HIT"):
+                        _auto_resolve_ids.append(sig["signal_id"])
 
                     # P&L shown at trigger price when a level is hit — not at current drifted price
                     if status_l == "STOPPED":
@@ -682,6 +689,19 @@ with tab_live:
                         if st.button("✗", key=f"sqcancel_{sig['signal_id']}", use_container_width=True):
                             st.session_state.pop(_sqkey, None)
                             st.rerun()
+
+            # Auto-resolve signals where price has crossed SL/T1/T2
+            if _auto_resolve_ids and not st.session_state.get("_auto_resolving"):
+                st.session_state["_auto_resolving"] = True
+                try:
+                    from signals.outcome_tracker import update_open_signal_outcomes
+                    _n = update_open_signal_outcomes(position_size_inr=float(position_size))
+                    st.session_state["_last_resolve_ts"] = time.time()
+                    st.session_state["_auto_resolving"] = False
+                    if _n:
+                        st.rerun()
+                except Exception:
+                    st.session_state["_auto_resolving"] = False
 
         _live_positions()
 
