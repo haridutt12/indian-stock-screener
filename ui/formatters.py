@@ -1,4 +1,5 @@
 """Indian number formatting utilities."""
+import math as _math
 
 
 def format_inr(value, decimals: int = 2) -> str:
@@ -40,6 +41,8 @@ def format_pct(value, decimals: int = 2, show_sign: bool = True) -> str:
         pct = float(value)
     except (TypeError, ValueError):
         return "N/A"
+    if _math.isnan(pct) or _math.isinf(pct):
+        return "N/A"
     prefix = "+" if show_sign and pct > 0 else ""
     return f"{prefix}{pct:.{decimals}f}%"
 
@@ -47,7 +50,10 @@ def format_pct(value, decimals: int = 2, show_sign: bool = True) -> str:
 def color_for_change(value) -> str:
     """Return 'green' or 'red' based on positive/negative value."""
     try:
-        return "green" if float(value) >= 0 else "red"
+        f = float(value)
+        if _math.isnan(f) or _math.isinf(f):
+            return "gray"
+        return "green" if f >= 0 else "red"
     except (TypeError, ValueError):
         return "gray"
 

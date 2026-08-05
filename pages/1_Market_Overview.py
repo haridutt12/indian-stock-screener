@@ -3,10 +3,28 @@ Page 1: Market Overview
 Live prices update in-place via st.fragment — no full page refresh.
 """
 import datetime as _dt
+import math as _math
 import streamlit as st
 import pandas as pd
 import pytz as _pytz
 import yfinance as yf
+
+
+def _sf(v):
+    """Safe float: returns None for NaN/Inf/None/error."""
+    try:
+        f = float(v)
+        return None if (_math.isnan(f) or _math.isinf(f)) else f
+    except Exception:
+        return None
+
+
+def _pct(curr, prev):
+    """Safe percentage change, or None on bad input."""
+    c, p = _sf(curr), _sf(prev)
+    if c is None or p is None or p == 0:
+        return None
+    return (c - p) / p * 100
 
 from data.fetcher import fetch_index_data, fetch_stock_data
 from data.market_status import market_status, is_market_open
@@ -21,12 +39,15 @@ _IST = _pytz.timezone("Asia/Kolkata")
 
 
 def _live_quote(ticker: str) -> dict:
-    """One fast_info call — returns {} on any failure."""
+    """One fast_info call — returns {} on any failure or NaN."""
     try:
         fi    = yf.Ticker(ticker).fast_info
-        price = float(fi.last_price)
-        prev  = float(fi.previous_close)
-        return {"price": price, "change_pct": (price - prev) / prev * 100}
+        price = _sf(fi.last_price)
+        prev  = _sf(fi.previous_close)
+        chg   = _pct(price, prev)
+        if price is None or chg is None:
+            return {}
+        return {"price": price, "change_pct": chg}
     except Exception:
         return {}
 
@@ -104,9 +125,11 @@ def _global_markets_data():
             df = yf.Ticker(ticker).history(period="5d", interval="1d", auto_adjust=True)
             if df is None or len(df) < 2:
                 continue
-            price = float(df["Close"].iloc[-1])
-            prev  = float(df["Close"].iloc[-2])
-            chg   = (price - prev) / prev * 100
+            price = _sf(df["Close"].iloc[-1])
+            prev  = _sf(df["Close"].iloc[-2])
+            chg   = _pct(price, prev)
+            if price is None or chg is None:
+                continue
             results.append({"label": label, "price": price, "chg": chg, "is_commodity": is_commodity})
         except Exception:
             continue
@@ -163,20 +186,23 @@ def _index_metrics():
 
         if _live:
             q       = _live_quote(ticker)
-            curr    = q.get("price", float(df["Close"].iloc[-1]))
-            day_chg = q.get("change_pct", 0.0)
+            curr    = _sf(q.get("price")) or _sf(df["Close"].iloc[-1])
+            day_chg = _sf(q.get("change_pct"))
             as_of   = "Live"
         else:
-            curr    = float(df["Close"].iloc[-1])
-            day_chg = (curr - float(df["Close"].iloc[-2])) / float(df["Close"].iloc[-2]) * 100
+            curr    = _sf(df["Close"].iloc[-1])
+            day_chg = _pct(curr, df["Close"].iloc[-2])
             as_of   = str(df.index[-1])[:10]
+
+        if curr is None:
+            continue
+        if day_chg is None:
+            day_chg = 0.0
 
         jan1    = _dt.date(df.index[-1].year, 1, 1)
         ytd_df  = df[df.index.date >= jan1]
-        ytd_pct = (
-            (curr - float(ytd_df["Close"].iloc[0])) / float(ytd_df["Close"].iloc[0]) * 100
-            if not ytd_df.empty else None
-        )
+        ytd_base = _sf(ytd_df["Close"].iloc[0]) if not ytd_df.empty else None
+        ytd_pct  = _pct(curr, ytd_base) if ytd_base else None
 
         day_arrow = "▲" if day_chg >= 0 else "▼"
         day_color = "#00c896" if day_chg >= 0 else "#ff4d6d"
@@ -207,9 +233,11 @@ def _index_metrics():
         try:
             vix_df = fetch_index_data(_vix_ticker, period="5d", interval="1d")
             if vix_df is not None and len(vix_df) >= 2:
-                v      = float(vix_df["Close"].iloc[-1])
-                v_prev = float(vix_df["Close"].iloc[-2])
-                v_chg  = (v - v_prev) / v_prev * 100
+                v      = _sf(vix_df["Close"].iloc[-1])
+                v_prev = _sf(vix_df["Close"].iloc[-2])
+                v_chg  = _pct(v, v_prev)
+                if v is None or v_chg is None:
+                    raise ValueError("VIX NaN")
                 v_arr  = "▲" if v_chg >= 0 else "▼"
                 if v < 12:   sent, s_col = "VERY CALM", "#00c896"
                 elif v < 15: sent, s_col = "CALM",      "#5AD8A6"
@@ -279,53 +307,68 @@ _n50 = hist_1y.get("Nifty 50")
 _bnk = hist_1y.get("Bank Nifty")
 
 if _n50 is not None and len(_n50) >= 50:
-    _c   = float(_n50["Close"].iloc[-1])
-    _s20 = float(_n50["Close"].rolling(20).mean().iloc[-1])
-    _s50 = float(_n50["Close"].rolling(50).mean().iloc[-1])
-    _col = "#00c896" if _c > _s20 else "#ff4d6d"
-    _cards.append(_intel_card(
-        "Nifty Trend",
-        "BULLISH" if _c > _s20 else "BEARISH",
-        f"vs SMA20 {(_c-_s20)/_s20*100:+.1f}% · SMA50 {(_c-_s50)/_s50*100:+.1f}%",
-        _col,
-    ))
-    _h52  = float(_n50["Close"].max())
-    _l52  = float(_n50["Close"].min())
-    _pos  = (_c - _l52) / (_h52 - _l52) * 100 if _h52 != _l52 else 50.0
-    _pc   = "#00c896" if _pos > 65 else "#f0b429" if _pos > 40 else "#ff4d6d"
-    _cards.append(_intel_card(
-        "Nifty 52W Range", f"{_pos:.0f}% of range",
-        f"From 52W high: {(_c-_h52)/_h52*100:.1f}%", _pc,
-    ))
-    if len(_n50) >= 22:
-        _ret1m = (_c / float(_n50["Close"].iloc[-22]) - 1) * 100
+    _c   = _sf(_n50["Close"].iloc[-1])
+    _s20 = _sf(_n50["Close"].rolling(20).mean().iloc[-1])
+    _s50 = _sf(_n50["Close"].rolling(50).mean().iloc[-1])
+    if _c and _s20 and _s50:
+        _col = "#00c896" if _c > _s20 else "#ff4d6d"
+        _s20_pct = _pct(_c, _s20)
+        _s50_pct = _pct(_c, _s50)
+        _sub = ""
+        if _s20_pct is not None:
+            _sub += f"vs SMA20 {_s20_pct:+.1f}%"
+        if _s50_pct is not None:
+            _sub += f" · SMA50 {_s50_pct:+.1f}%"
         _cards.append(_intel_card(
-            "Nifty 1M Return", f"{_ret1m:+.2f}%", "rolling 1-month return",
-            "#00c896" if _ret1m >= 0 else "#ff4d6d",
+            "Nifty Trend",
+            "BULLISH" if _c > _s20 else "BEARISH",
+            _sub or "SMA data unavailable",
+            _col,
         ))
+    if _c:
+        _h52 = _sf(_n50["Close"].max())
+        _l52 = _sf(_n50["Close"].min())
+        if _h52 and _l52 and _h52 != _l52:
+            _pos  = (_c - _l52) / (_h52 - _l52) * 100
+            _pc   = "#00c896" if _pos > 65 else "#f0b429" if _pos > 40 else "#ff4d6d"
+            _from_high = _pct(_c, _h52)
+            _fh_str = f"From 52W high: {_from_high:.1f}%" if _from_high is not None else ""
+            _cards.append(_intel_card("Nifty 52W Range", f"{_pos:.0f}% of range", _fh_str, _pc))
+    if _c and len(_n50) >= 22:
+        _ret1m = _pct(_c, _n50["Close"].iloc[-22])
+        if _ret1m is not None:
+            _cards.append(_intel_card(
+                "Nifty 1M Return", f"{_ret1m:+.2f}%", "rolling 1-month return",
+                "#00c896" if _ret1m >= 0 else "#ff4d6d",
+            ))
 
 if _bnk is not None and len(_bnk) >= 20:
-    _bc   = float(_bnk["Close"].iloc[-1])
-    _bs20 = float(_bnk["Close"].rolling(20).mean().iloc[-1])
-    _bdc  = "#00c896" if _bc > _bs20 else "#ff4d6d"
-    _cards.append(_intel_card(
-        "Bank Nifty", "BULLISH" if _bc > _bs20 else "BEARISH",
-        f"vs SMA20 {(_bc-_bs20)/_bs20*100:+.1f}%", _bdc,
-    ))
+    _bc   = _sf(_bnk["Close"].iloc[-1])
+    _bs20 = _sf(_bnk["Close"].rolling(20).mean().iloc[-1])
+    if _bc and _bs20:
+        _bdc   = "#00c896" if _bc > _bs20 else "#ff4d6d"
+        _bs_pct = _pct(_bc, _bs20)
+        _bsub   = f"vs SMA20 {_bs_pct:+.1f}%" if _bs_pct is not None else ""
+        _cards.append(_intel_card(
+            "Bank Nifty", "BULLISH" if _bc > _bs20 else "BEARISH",
+            _bsub, _bdc,
+        ))
 
 _sp = next((x for x in _gm if x["label"] == "S&P 500"), None)
-if _sp:
+if _sp and _sf(_sp.get("chg")) is not None:
+    _sp_chg = _sf(_sp["chg"])
     _cards.append(_intel_card(
-        "S&P 500 Cue", f"{_sp['chg']:+.2f}%", "yesterday's US close",
-        "#00c896" if _sp["chg"] >= 0 else "#ff4d6d",
+        "S&P 500 Cue", f"{_sp_chg:+.2f}%", "yesterday's US close",
+        "#00c896" if _sp_chg >= 0 else "#ff4d6d",
     ))
 
 _crude = next((x for x in _gm if x["label"] == "Crude Oil"), None)
-if _crude:
-    _crc = "#ff4d6d" if _crude["chg"] > 1 else "#00c896" if _crude["chg"] < -1 else "#f0b429"
+if _crude and _sf(_crude.get("chg")) is not None:
+    _cr_chg = _sf(_crude["chg"])
+    _crc = "#ff4d6d" if _cr_chg > 1 else "#00c896" if _cr_chg < -1 else "#f0b429"
     _cards.append(_intel_card(
         "Crude Oil", f"${_crude['price']:.0f}",
-        f"{_crude['chg']:+.2f}% · {'↑ cost pressure' if _crude['chg'] > 0 else '↓ relief'}",
+        f"{_cr_chg:+.2f}% · {'↑ cost pressure' if _cr_chg > 0 else '↓ relief'}",
         _crc,
     ))
 

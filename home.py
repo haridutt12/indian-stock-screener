@@ -3,6 +3,7 @@ NiftyEdge — Home page
 Tabs: Home · Signals · News · Screener · Tools
 """
 import logging
+import math as _math
 import datetime as _dt
 import streamlit as st
 import pytz as _pytz
@@ -12,6 +13,23 @@ from ui.styles import inject_global_css, auth_guard, user_sidebar
 
 logger = logging.getLogger(__name__)
 _IST   = _pytz.timezone("Asia/Kolkata")
+
+
+def _sf(v):
+    """Safe float: returns None for NaN/Inf/None/error."""
+    try:
+        f = float(v)
+        return None if (_math.isnan(f) or _math.isinf(f)) else f
+    except Exception:
+        return None
+
+
+def _pct(curr, prev):
+    """Safe percentage change: (curr-prev)/prev*100, or None on bad input."""
+    c, p = _sf(curr), _sf(prev)
+    if c is None or p is None or p == 0:
+        return None
+    return (c - p) / p * 100
 
 inject_global_css()
 auth_guard()
@@ -62,26 +80,31 @@ def _hero_indices():
         try:
             if _is_open:
                 fi    = yf.Ticker(ticker).fast_info
-                price = float(fi.last_price)
-                prev  = float(fi.previous_close)
-                chg   = (price - prev) / prev * 100
+                price = _sf(fi.last_price)
+                prev  = _sf(fi.previous_close)
             else:
-                price = float(df["Close"].iloc[-1])
-                chg   = (price - float(df["Close"].iloc[-2])) / float(df["Close"].iloc[-2]) * 100
+                price = _sf(df["Close"].iloc[-1])
+                prev  = _sf(df["Close"].iloc[-2])
+            if price is None or prev is None:
+                continue
+            chg = _pct(price, prev)
+            if chg is None:
+                continue
             jan1    = _dt.date(df.index[-1].year, 1, 1)
             ytd_df  = df[df.index.date >= jan1]
-            ytd_pct = ((price - float(ytd_df["Close"].iloc[0])) / float(ytd_df["Close"].iloc[0]) * 100
-                       if not ytd_df.empty else None)
+            ytd_base = _sf(ytd_df["Close"].iloc[0]) if not ytd_df.empty else None
+            ytd_pct  = _pct(price, ytd_base) if ytd_base else None
             results[name] = {"price": price, "chg": chg, "ytd": ytd_pct}
         except Exception:
             pass
     try:
         vix_df = fetch_index_data("^INDIAVIX", period="5d", interval="1d")
         if vix_df is not None and len(vix_df) >= 2:
-            v_price = float(vix_df["Close"].iloc[-1])
-            v_prev  = float(vix_df["Close"].iloc[-2])
-            v_chg   = (v_price - v_prev) / v_prev * 100
-            results["VIX"] = {"price": v_price, "chg": v_chg, "ytd": None}
+            v_price = _sf(vix_df["Close"].iloc[-1])
+            v_prev  = _sf(vix_df["Close"].iloc[-2])
+            v_chg   = _pct(v_price, v_prev)
+            if v_price is not None and v_chg is not None:
+                results["VIX"] = {"price": v_price, "chg": v_chg, "ytd": None}
     except Exception:
         pass
     return results
@@ -98,10 +121,12 @@ def _movers():
         for t, df in price_data.items():
             if df is None or len(df) < 2:
                 continue
-            curr = float(df["Close"].iloc[-1])
-            prev = float(df["Close"].iloc[-2])
-            changes.append({"ticker": t.replace(".NS", ""), "price": curr,
-                            "chg": (curr - prev) / prev * 100})
+            curr = _sf(df["Close"].iloc[-1])
+            prev = _sf(df["Close"].iloc[-2])
+            chg  = _pct(curr, prev)
+            if curr is None or chg is None:
+                continue
+            changes.append({"ticker": t.replace(".NS", ""), "price": curr, "chg": chg})
         changes.sort(key=lambda x: x["chg"], reverse=True)
         return changes[:5], changes[-5:][::-1]
     except Exception:
@@ -130,16 +155,18 @@ def _volume_anomalies():
         for t, df in df_map.items():
             if df is None or len(df) < 8:
                 continue
-            vol     = float(df["Volume"].iloc[-1])
-            avg_vol = float(df["Volume"].iloc[:-1].mean())
-            if avg_vol <= 0:
+            vol     = _sf(df["Volume"].iloc[-1])
+            avg_vol = _sf(df["Volume"].iloc[:-1].mean())
+            if not vol or not avg_vol or avg_vol <= 0:
                 continue
             ratio = vol / avg_vol
             if ratio < 1.5:
                 continue
-            close = float(df["Close"].iloc[-1])
-            prev  = float(df["Close"].iloc[-2])
-            chg   = (close - prev) / prev * 100
+            close = _sf(df["Close"].iloc[-1])
+            prev  = _sf(df["Close"].iloc[-2])
+            chg   = _pct(close, prev)
+            if close is None or chg is None:
+                continue
             anomalies.append({
                 "ticker": t.replace(".NS", ""),
                 "ratio":  ratio,
