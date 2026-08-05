@@ -524,11 +524,13 @@ def _market_data():
             continue
         if _live:
             q    = _live_quote(ticker)
-            curr = q.get("price", float(df["Close"].iloc[-1]))
-            chg  = q.get("change_pct", 0.0)
+            curr = _sf(q.get("price")) or _sf(df["Close"].iloc[-1])
+            chg  = _sf(q.get("change_pct")) or 0.0
         else:
-            curr = float(df["Close"].iloc[-1])
-            chg  = (curr - float(df["Close"].iloc[-2])) / float(df["Close"].iloc[-2]) * 100
+            curr = _sf(df["Close"].iloc[-1])
+            chg  = _pct(curr, df["Close"].iloc[-2]) or 0.0
+        if curr is None:
+            continue
         sector_data.append({"sector": name, "change_pct": chg, "market_cap": abs(curr)})
         arrow  = "▲" if chg >= 0 else "▼"
         color  = "#00c896" if chg >= 0 else "#ff4d6d"
@@ -575,18 +577,22 @@ def _market_data():
                 prev_df  = df[df.index.date < today]
                 if today_df.empty or prev_df.empty:
                     continue
-                curr_p = float(today_df["Close"].iloc[-1])
-                prev_p = float(prev_df["Close"].iloc[-1])
+                curr_p = _sf(today_df["Close"].iloc[-1])
+                prev_p = _sf(prev_df["Close"].iloc[-1])
             else:
                 if len(df) < 2:
                     continue
-                curr_p = float(df["Close"].iloc[-1])
-                prev_p = float(df["Close"].iloc[-2])
+                curr_p = _sf(df["Close"].iloc[-1])
+                prev_p = _sf(df["Close"].iloc[-2])
+            if curr_p is None or prev_p is None:
+                continue
+            chg_pct = _pct(curr_p, prev_p)
+            if chg_pct is None:
+                continue
             chg = curr_p - prev_p
             advances += (1 if chg > 0 else 0)
             declines += (1 if chg < 0 else 0)
-            changes.append({"ticker": t, "price": curr_p,
-                            "change_pct": (curr_p - prev_p) / prev_p * 100})
+            changes.append({"ticker": t, "price": curr_p, "change_pct": chg_pct})
         except Exception:
             continue
 
