@@ -14,6 +14,25 @@ logger = logging.getLogger(__name__)
 _catchup_running = threading.Event()
 
 
+def _log_auth_config() -> None:
+    """Log OAuth config keys to Streamlit Cloud logs on first run — helps debug auth issues."""
+    try:
+        _auth = dict(st.secrets.get("auth") or {})
+        _g    = dict(_auth.get("google") or {})
+        logger.info(
+            "AUTH_CFG | redirect_uri=%r | cookie_secret_len=%d | google_keys=%s",
+            _auth.get("redirect_uri", "MISSING"),
+            len(str(_auth.get("cookie_secret", ""))),
+            sorted(_g.keys()),
+        )
+        if "server_metadata_url" not in _g:
+            logger.error("AUTH_CFG | MISSING server_metadata_url in [auth.google] — OAuth will fail for all users")
+        if "client_id" not in _g or "client_secret" not in _g:
+            logger.error("AUTH_CFG | MISSING client_id or client_secret in [auth.google]")
+    except Exception as _e:
+        logger.error("AUTH_CFG check failed: %s", _e)
+
+
 @st.cache_resource
 def _start_scheduler():
     try:
@@ -71,6 +90,7 @@ st.set_page_config(
 )
 
 _start_scheduler()
+_log_auth_config()
 
 # Record the visit once per session
 if not st.session_state.get("_ne_visit_recorded"):

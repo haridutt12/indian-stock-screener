@@ -668,6 +668,19 @@ def auth_guard() -> None:
     if not _auth_on or st.user.is_logged_in:
         return
 
+    # ── Show OAuth error if the callback failed ───────────────────────────────
+    _oauth_err = (
+        st.query_params.get("error")
+        or st.session_state.get("oauth_error")
+        or st.session_state.get("_oauth_error")
+    )
+    if _oauth_err:
+        st.error(
+            f"Sign-in failed: `{_oauth_err}`. "
+            "Please clear cookies, try a different browser, or contact the app owner.",
+            icon="🔒",
+        )
+
     # ── Login wall ────────────────────────────────────────────────────────────
     st.markdown(
         '<div style="min-height:60vh;display:flex;align-items:center;justify-content:center;">'
