@@ -241,12 +241,21 @@ def get_top_gainers_losers(tickers: list[str], top_n: int = 5) -> dict:
     data = fetch_stock_data(tickers, period="5d", interval="1d")
     changes = []
     for ticker, df in data.items():
-        if len(df) >= 2:
-            prev_close = df["Close"].iloc[-2]
-            curr_close = df["Close"].iloc[-1]
-            pct_change = ((curr_close - prev_close) / prev_close) * 100
-            changes.append({"ticker": ticker, "price": curr_close, "change_pct": pct_change})
+        if len(df) < 2:
+            continue
+        try:
+            import math
+            prev = float(df["Close"].iloc[-2])
+            curr = float(df["Close"].iloc[-1])
+            if math.isnan(prev) or math.isnan(curr) or prev == 0:
+                continue
+            pct_change = (curr - prev) / prev * 100
+            changes.append({"ticker": ticker, "price": curr, "change_pct": pct_change})
+        except Exception:
+            continue
 
+    if not changes:
+        return {"gainers": [], "losers": []}
     changes_df = pd.DataFrame(changes).sort_values("change_pct", ascending=False)
     return {
         "gainers": changes_df.head(top_n).to_dict("records"),
