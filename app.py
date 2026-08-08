@@ -92,16 +92,17 @@ st.set_page_config(
 _start_scheduler()
 _log_auth_config()
 
-# Record the visit once per session
+# Record the visit once per session — only after the user is authenticated
 if not st.session_state.get("_ne_visit_recorded"):
     try:
-        from auth.user_store import upsert_user as _upsert
-        _upsert(
-            st.user.email,
-            getattr(st.user, "name",    "") or "",
-            getattr(st.user, "picture", "") or "",
-        )
-        st.session_state["_ne_visit_recorded"] = True
+        if st.user.is_logged_in:
+            from auth.user_store import upsert_user as _upsert
+            _upsert(
+                st.user.email,
+                getattr(st.user, "name",    "") or "",
+                getattr(st.user, "picture", "") or "",
+            )
+            st.session_state["_ne_visit_recorded"] = True
     except Exception:
         pass
 

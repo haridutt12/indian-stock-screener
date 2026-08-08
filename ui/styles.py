@@ -722,14 +722,13 @@ def auth_guard() -> None:
 
     _, _btn_col, _ = st.columns([1, 1.4, 1])
     with _btn_col:
-        st.button(
+        if st.button(
             "Continue with Google →",
-            on_click=st.login,
-            args=["google"],
             type="primary",
             use_container_width=True,
             key="ne_login_btn",
-        )
+        ):
+            st.login("google")
         st.markdown(
             '<p style="color:#374151;font-size:0.65rem;text-align:center;margin-top:4px;">'
             'Secure · Google OAuth 2.0 · No password needed</p>',
