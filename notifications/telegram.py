@@ -256,6 +256,49 @@ def notify_intraday_signals(signals: list) -> int:
     return sent
 
 
+def format_trade_resolved(signal: dict, outcome: str, price: float, pnl_pct: float) -> str:
+    """Format a trade resolution alert (SL hit, T1 hit, T2 hit)."""
+    ticker = signal.get("ticker", "").replace(".NS", "")
+    strategy = signal.get("strategy", "")
+    timeframe = signal.get("timeframe", "")
+    direction = signal.get("direction", "LONG")
+    entry = float(signal.get("entry_price") or 0)
+    pnl_inr = pnl_pct / 100 * float(signal.get("position_size_inr") or 100_000)
+    now = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+
+    outcome_map = {
+        "TARGET2_HIT":  ("🎯🎯", "TARGET 2 HIT"),
+        "TARGET1_HIT":  ("🎯",   "TARGET 1 HIT"),
+        "STOPPED":      ("🛑",   "STOPPED OUT"),
+        "SQUARED_OFF":  ("⎋",    "SQUARED OFF"),
+        "EXPIRED":      ("⏰",   "EXPIRED"),
+    }
+    emoji, label = outcome_map.get(outcome, ("📊", outcome))
+    pnl_sign = "+" if pnl_pct >= 0 else ""
+
+    return (
+        f"{emoji} <b>{label} — {ticker}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Strategy:  {strategy} · {timeframe}\n"
+        f"Direction: {'🟢 LONG' if direction == 'LONG' else '🔴 SHORT'}\n\n"
+        f"Entry:  ₹{entry:,.2f}\n"
+        f"Exit:   ₹{price:,.2f}\n"
+        f"P&L:    <b>{pnl_sign}{pnl_pct:.2f}% · ₹{pnl_sign}{pnl_inr:,.0f}</b>\n\n"
+        f"🕐 {now}"
+    )
+
+
+def notify_trade_resolved(signal: dict, outcome: str, price: float, pnl_pct: float) -> bool:
+    """Send a trade resolution alert to the Telegram channel."""
+    if not is_configured():
+        return False
+    try:
+        return send_message(format_trade_resolved(signal, outcome, price, pnl_pct))
+    except Exception as e:
+        logger.error(f"notify_trade_resolved failed: {e}")
+        return False
+
+
 # ── Daily Top 3 ────────────────────────────────────────────────────────────────
 
 _MEDAL = ["🥇", "🥈", "🥉"]

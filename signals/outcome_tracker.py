@@ -338,6 +338,7 @@ def _resolve_swing(signal: dict) -> Optional[dict]:
 def update_open_signal_outcomes(
     position_size_inr: float = DEFAULT_POSITION_SIZE_INR,
     timeframe: str = None,
+    notify_on_resolve: bool = False,
 ) -> int:
     """
     Iterate OPEN signals, resolve each against price data, and write
@@ -346,6 +347,7 @@ def update_open_signal_outcomes(
     Args:
         position_size_inr: Capital per trade for cost/P&L calculations (default ₹1L)
         timeframe: Optional — 'INTRADAY' or 'SWING'. None resolves all open signals.
+        notify_on_resolve: If True, send Telegram alert for terminal outcomes.
 
     Returns the number of signals resolved.
     """
@@ -389,6 +391,19 @@ def update_open_signal_outcomes(
             )
 
             resolved += 1
+
+            if notify_on_resolve and result["outcome"] in (
+                OUTCOME_TARGET1, OUTCOME_TARGET2, OUTCOME_STOPPED
+            ):
+                try:
+                    from notifications.telegram import notify_trade_resolved
+                    entry = sig["entry_price"]
+                    direction = sig["direction"]
+                    exit_p = result["price"]
+                    pnl_pct = ((exit_p - entry) / entry * 100) if direction == "LONG" else ((entry - exit_p) / entry * 100)
+                    notify_trade_resolved(sig, result["outcome"], exit_p, pnl_pct)
+                except Exception as _tg_err:
+                    logger.warning(f"Telegram resolve notify failed: {_tg_err}")
             logger.info(
                 f"[{sig['ticker']}] {sig['strategy']} → {result['outcome']} "
                 f"@ ₹{result['price']:.2f}  "

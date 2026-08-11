@@ -499,6 +499,14 @@ class SignalLogger:
         except Exception as exc:
             logger.error(f"SignalLogger.update_outcome failed ({signal_id}): {exc}")
 
+    def update_stop_loss(self, signal_id: str, new_stop: float) -> None:
+        sql = "UPDATE signal_log SET stop_loss=? WHERE signal_id=? AND outcome=?"
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, sql, (round(new_stop, 2), signal_id, OUTCOME_OPEN))
+        except Exception as exc:
+            logger.error(f"SignalLogger.update_stop_loss failed ({signal_id}): {exc}")
+
     # ── Read ──────────────────────────────────────────────────────────────────────────
 
     def get_open_signals(self, timeframe: Optional[str] = None) -> list[dict]:

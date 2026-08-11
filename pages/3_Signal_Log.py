@@ -167,6 +167,8 @@ except Exception:
     pass
 
 # Auto-resolve: always run when market is open or signals are stale; throttle to 5 min otherwise
+from data.market_status import is_market_open as _is_mkt_open
+_mkt_live   = _is_mkt_open()
 _open_all   = log.get_open_signals()
 _last_res   = st.session_state.get("_last_resolve_ts", 0)
 _has_stale  = any(s["signal_date"] < today_str for s in _open_all)
@@ -196,8 +198,7 @@ open_signals   = _open_all
 closed_signals = [s for s in signals if s["outcome"] != OUTCOME_OPEN]
 
 # ── Page header ──────────────────────────────────────────────────────────────────────────────────────────────
-from data.market_status import is_market_open as _is_mkt_open
-_mkt_live = _is_mkt_open()
+_mkt_live = _is_mkt_open()  # re-check after data load (may have crossed market open)
 _dot_col  = "#00c896" if _mkt_live else "#f0b429"
 _dot_rgb  = "0,200,150" if _mkt_live else "240,180,41"
 _pulse    = "animation:pulse 1.4s ease-in-out infinite;" if _mkt_live else ""
@@ -441,10 +442,34 @@ with tab_live:
             unsafe_allow_html=True,
         )
     else:
-        @st.fragment(run_every=120 if _mkt_live else None)
+        @st.fragment(run_every=60 if _mkt_live else None)
         def _live_positions():
             _is_live = _is_mkt_open()
-            _auto_resolve_ids = []  # signal_ids where price has hit SL/T1/T2
+            _auto_resolve_ids = []  # signal_ids where price has hit SL or T2 (terminal)
+            _t1_hit_ids = []        # signal_ids where price is at T1 (offer trail/book choice)
+
+            # "Last updated" strip
+            _now_fmt = _dt.datetime.now(IST).strftime("%H:%M:%S IST")
+            _upd_parts = [f"Last updated: {_now_fmt}"]
+            if _is_live:
+                # Countdown to 3:30 PM IST square-off
+                _sq_time = _dt.datetime.now(IST).replace(hour=15, minute=30, second=0, microsecond=0)
+                _secs_left = int((_sq_time - _dt.datetime.now(IST)).total_seconds())
+                if _secs_left > 0:
+                    _h, _rem = divmod(_secs_left, 3600)
+                    _m, _s   = divmod(_rem, 60)
+                    _cdown   = f"{_h:02d}:{_m:02d}:{_s:02d}"
+                    _cdown_col = "#ff4d6d" if _secs_left < 900 else ("#f0b429" if _secs_left < 3600 else "#00c896")
+                    _upd_parts.append(
+                        f'<span style="color:{_cdown_col};font-weight:700;">'
+                        f'⏱ Intraday SQ-OFF in {_cdown}</span>'
+                    )
+            st.markdown(
+                f'<div style="font-size:0.72rem;color:#475569;margin-bottom:10px;">'
+                f'{"  ·  ".join(_upd_parts)}</div>',
+                unsafe_allow_html=True,
+            )
+
             for sig in _open_filtered:
                 ticker    = sig["ticker"]
                 entry     = sig["entry_price"]
@@ -511,9 +536,11 @@ with tab_live:
                                                                                 status_l, status_c = "STALE",      "#64748b"
                         else:                                                   status_l, status_c = "ACTIVE",     "#7c83fd"
 
-                    # Queue auto-resolution if price has crossed a terminal level
-                    if status_l in ("STOPPED", "T1 HIT", "T2 HIT"):
+                    # Queue auto-resolution: only terminal levels
+                    if status_l in ("STOPPED", "T2 HIT"):
                         _auto_resolve_ids.append(sig["signal_id"])
+                    elif status_l == "T1 HIT":
+                        _t1_hit_ids.append(sig["signal_id"])
 
                     # P&L shown at trigger price when a level is hit — not at current drifted price
                     if status_l == "STOPPED":
@@ -612,6 +639,104 @@ with tab_live:
                         f'</div>'
                     )
                     st.markdown(html, unsafe_allow_html=True)
+
+                    # ── T1 Hit: trail or book panel ──────────────────────────────────────
+                    if sig["signal_id"] in _t1_hit_ids:
+                        st.markdown(
+                            '<div style="background:rgba(90,216,166,0.08);border:1px solid rgba(90,216,166,0.25);'
+                            'border-radius:10px;padding:10px 14px;margin:4px 0 8px;">'
+                            '<span style="color:#5AD8A6;font-weight:700;font-size:0.82rem;">🎯 Target 1 Reached</span>'
+                            '<span style="color:#94a3b8;font-size:0.75rem;margin-left:8px;">'
+                            'Book profit now or trail stop to breakeven to chase T2.</span>'
+                            '</div>',
+                            unsafe_allow_html=True,
+                        )
+                        _t1a, _t1b, _ = st.columns([1, 1, 2])
+                        with _t1a:
+                            if st.button(
+                                "🏃 Trail SL to Entry",
+                                key=f"trail_{sig['signal_id']}",
+                                use_container_width=True,
+                                help="Move stop loss to entry price (breakeven). Keep position open for T2.",
+                            ):
+                                log.update_stop_loss(sig["signal_id"], entry)
+                                st.success(f"Stop loss moved to ₹{entry:,.2f} (breakeven) — chasing T2.")
+                                st.rerun()
+                        with _t1b:
+                            if st.button(
+                                "📥 Book T1 Profit",
+                                key=f"bookt1_{sig['signal_id']}",
+                                use_container_width=True,
+                                type="primary",
+                                help="Close position at T1 price.",
+                            ):
+                                from signals.trade_costs import compute_trade_cost as _ctc
+                                _costs = _ctc(
+                                    entry_price=entry, exit_price=t1,
+                                    direction=direction, timeframe=sig.get("timeframe", "SWING"),
+                                    position_size_inr=float(position_size), stop_loss=stop,
+                                )
+                                log.update_outcome(
+                                    signal_id=sig["signal_id"], outcome=OUTCOME_TARGET1,
+                                    outcome_price=t1,
+                                    outcome_at=_dt.datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                                    pnl_r=_costs.get("net_pnl_r"), cost_breakdown=_costs,
+                                )
+                                try:
+                                    from notifications.telegram import notify_trade_resolved
+                                    _ep = t1
+                                    _pp = (((_ep - entry) / entry * 100) if is_long
+                                           else ((entry - _ep) / entry * 100))
+                                    notify_trade_resolved(sig, OUTCOME_TARGET1, _ep, _pp)
+                                except Exception:
+                                    pass
+                                st.rerun(scope="app")
+
+                    # ── Mini candlestick chart (in expander) ─────────────────────────────
+                    _chart_lbl = "📊 5-min Chart" if sig.get("timeframe") == "INTRADAY" else "📊 Daily Chart"
+                    with st.expander(_chart_lbl, expanded=False):
+                        try:
+                            import plotly.graph_objects as _go
+                            if sig.get("timeframe") == "INTRADAY":
+                                _cdf = yf.Ticker(ticker).history(period="1d", interval="5m", auto_adjust=True)
+                            else:
+                                _cdf = yf.Ticker(ticker).history(period="30d", interval="1d", auto_adjust=True)
+                            if _cdf is not None and not _cdf.empty:
+                                _cfig = _go.Figure(data=[_go.Candlestick(
+                                    x=_cdf.index,
+                                    open=_cdf["Open"], high=_cdf["High"],
+                                    low=_cdf["Low"],   close=_cdf["Close"],
+                                    name=label,
+                                    increasing_line_color="#00c896",
+                                    decreasing_line_color="#ff4d6d",
+                                    showlegend=False,
+                                )])
+                                # Key levels as horizontal lines
+                                for _lv, _lc, _ln in [
+                                    (entry, "#7c83fd", "Entry"),
+                                    (stop,  "#ff4d6d", "SL"),
+                                    (t1,    "#5AD8A6", "T1"),
+                                    (t2,    "#00c896", "T2"),
+                                ]:
+                                    _cfig.add_hline(
+                                        y=_lv, line_color=_lc, line_width=1.5,
+                                        line_dash="dot", annotation_text=_ln,
+                                        annotation_position="right",
+                                        annotation_font_color=_lc,
+                                    )
+                                _cfig.update_layout(
+                                    height=220, margin=dict(l=0, r=40, t=10, b=0),
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    xaxis=dict(showgrid=False, rangeslider=dict(visible=False)),
+                                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+                                )
+                                st.plotly_chart(_cfig, use_container_width=True, config={"displayModeBar": False})
+                            else:
+                                st.caption("Chart data unavailable.")
+                        except Exception as _ce:
+                            st.caption(f"Chart error: {_ce}")
+
                 else:
                     st.markdown(
                         f'<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
@@ -690,12 +815,15 @@ with tab_live:
                             st.session_state.pop(_sqkey, None)
                             st.rerun()
 
-            # Auto-resolve signals where price has crossed SL/T1/T2
+            # Auto-resolve signals where price has crossed SL or T2 (terminal)
             if _auto_resolve_ids and not st.session_state.get("_auto_resolving"):
                 st.session_state["_auto_resolving"] = True
                 try:
                     from signals.outcome_tracker import update_open_signal_outcomes
-                    _n = update_open_signal_outcomes(position_size_inr=float(position_size))
+                    _n = update_open_signal_outcomes(
+                        position_size_inr=float(position_size),
+                        notify_on_resolve=_is_live,
+                    )
                     st.session_state["_last_resolve_ts"] = time.time()
                     st.session_state["_auto_resolving"] = False
                     if _n:
