@@ -200,6 +200,128 @@ def _compute_swing_signals(
     return signals
 
 
+def _compute_swing_short_signals(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_scores: dict,
+    sentiment_score: float = 0.5,
+    fund_info: dict = None,
+) -> list[TradeSignal]:
+    """Return SHORT swing signals for a single stock (bear-side strategies)."""
+    if df is None or len(df) < 60:
+        return []
+
+    df_ind = compute_indicators(df)
+    summary = get_technical_summary(df_ind)
+    if not summary:
+        return []
+
+    latest = df_ind.iloc[-1]
+
+    def _f(val):
+        try:
+            v = float(val)
+            return None if (v != v) else v
+        except (TypeError, ValueError):
+            return None
+
+    close = _f(latest["Close"])
+    if close is None:
+        return []
+
+    atr          = summary.get("atr")
+    rsi          = summary.get("rsi")
+    macd_bullish = summary.get("macd_bullish")
+    volume_ratio = summary.get("volume_ratio") or 1.0
+
+    sma50  = _f(latest.get(f"SMA_{SMA_MID}"))
+    sma200 = _f(latest.get(f"SMA_{SMA_LONG}"))
+
+    if not atr or atr == 0:
+        return []
+
+    short_strategies = []
+
+    # Strategy S1: Death Cross — SMA50 crossed below SMA200 recently (within 20 bars)
+    if (
+        sma50 is not None and sma200 is not None
+        and sma50 < sma200
+        and rsi is not None and 30 <= rsi <= 60
+        and len(df_ind) >= 21
+    ):
+        prev50  = _f(df_ind[f"SMA_{SMA_MID}"].iloc[-21])
+        prev200 = _f(df_ind[f"SMA_{SMA_LONG}"].iloc[-21])
+        if prev50 is not None and prev200 is not None and prev50 > prev200:
+            short_strategies.append("Death Cross")
+
+    # Strategy S2: Overbought Reversal — RSI extended + MACD turning bearish
+    if (
+        rsi is not None and rsi > 65
+        and macd_bullish is False
+        and sma200 is not None and close > sma200 * 1.03
+    ):
+        short_strategies.append("Overbought Reversal")
+
+    # Strategy S3: Trend Breakdown — price breaks below SMA50 with volume confirmation
+    if (
+        sma50 is not None and close < sma50
+        and macd_bullish is False
+        and volume_ratio >= VOLUME_SPIKE_MULTIPLIER
+        and rsi is not None and rsi < 50
+    ):
+        short_strategies.append("Trend Breakdown")
+
+    if not short_strategies:
+        return []
+
+    sl_distance = atr * 1.5
+    stop_loss = round(close + sl_distance, 2)          # SL is ABOVE entry for SHORT
+    target_1  = round(close - sl_distance * MIN_RISK_REWARD, 2)
+    target_2  = round(close - sl_distance * MIN_RISK_REWARD * 1.5, 2)
+    risk_reward = round((close - target_1) / (stop_loss - close), 2) if stop_loss != close else 0
+
+    if risk_reward < MIN_RISK_REWARD or target_1 <= 0:
+        return []
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    fund_composite = fund_scores.get("composite_score", 0.5)
+
+    signals = []
+    for strategy in short_strategies:
+        conf_raw = (1 - fund_composite) * 0.35 + (1 - sentiment_score) * 0.15 + 0.5 * 0.5
+        confidence = 5 if conf_raw >= 0.75 else (4 if conf_raw >= 0.60 else (3 if conf_raw >= 0.45 else 2))
+
+        reasoning = (
+            f"SHORT setup: {strategy}. RSI {rsi:.0f}." if rsi else f"SHORT setup: {strategy}."
+        ) + (
+            f" Volume {volume_ratio:.1f}x average." if volume_ratio > 1.5 else ""
+        ) + f" ATR-based stop at {stop_loss:.2f} ({((stop_loss - close) / close * 100):.1f}% risk)."
+
+        signals.append(TradeSignal(
+            ticker=ticker,
+            name=name,
+            direction="SHORT",
+            entry_price=round(close, 2),
+            stop_loss=stop_loss,
+            target_1=target_1,
+            target_2=target_2,
+            risk_reward=risk_reward,
+            confidence=confidence,
+            strategy=strategy,
+            timeframe="SWING",
+            technical_score=round(summary.get("strength", 50) / 100, 3),
+            fundamental_score=round(fund_composite, 3),
+            sentiment_score=round(sentiment_score, 3),
+            reasoning=reasoning,
+            patterns=summary.get("patterns", []),
+            current_price=close,
+            sector=sector,
+        ))
+
+    return signals
+
+
 def generate_swing_signals(
     tickers: list[str],
     sentiment_score: float = 0.5,
@@ -242,9 +364,18 @@ def generate_swing_signals(
                 sentiment_score=sentiment_score,
                 fund_info=fund_info,
             )
+            short_signals = _compute_swing_short_signals(
+                ticker=ticker,
+                df=df,
+                fund_scores=fund_scores,
+                sentiment_score=sentiment_score,
+                fund_info=fund_info,
+            )
             all_signals.extend(signals)
+            all_signals.extend(short_signals)
             if on_tick:
-                on_tick(ticker, [s.strategy for s in signals], i + 1, total)
+                all_strats = [s.strategy for s in signals] + [s.strategy for s in short_signals]
+                on_tick(ticker, all_strats, i + 1, total)
         except Exception as e:
             logger.warning(f"Error generating swing signal for {ticker}: {e}")
             if on_tick:

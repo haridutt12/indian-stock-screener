@@ -292,14 +292,6 @@ def _supertrend_signal(
     close   = float(latest["Close"])
     st_dir  = latest.get("Supertrend_dir")
 
-    if st_dir != "bull":
-        return None
-
-    # Require a fresh flip within the last 5 candles
-    recent_dirs = df_ind["Supertrend_dir"].dropna().iloc[-6:]
-    if len(recent_dirs) < 2 or "bear" not in recent_dirs.iloc[:-1].values:
-        return None
-
     atr_col = f"ATR_{ATR_PERIOD}"
     rsi_col = f"RSI_{RSI_PERIOD}"
 
@@ -307,47 +299,87 @@ def _supertrend_signal(
         v = row.get(col)
         return None if v is None or pd.isna(v) else float(v)
 
-    atr  = _fv(atr_col, latest)
-    rsi  = _fv(rsi_col, latest)
-    vwap = _fv("VWAP", latest)
+    atr    = _fv(atr_col, latest)
+    rsi    = _fv(rsi_col, latest)
+    vwap   = _fv("VWAP", latest)
     st_val = _fv("Supertrend", latest)
 
     if not atr:
         return None
-    if rsi is not None and rsi > 72:
-        return None
-    if vwap is not None and close < vwap * 0.998:
-        return None
 
-    direction = "LONG"
-    stop_loss = round(st_val * 0.998, 2) if st_val else round(close - atr, 2)
-    risk      = abs(close - stop_loss)
-    if risk == 0 or stop_loss >= close:
+    recent_dirs = df_ind["Supertrend_dir"].dropna().iloc[-6:]
+    if len(recent_dirs) < 2:
         return None
 
-    target_1 = round(close + risk * MIN_RISK_REWARD, 2)
-    target_2 = round(close + risk * 2.5, 2)
-    rr       = round((target_1 - close) / risk, 2)
+    # ── Bullish flip ─────────────────────────────────────────────────────────
+    if st_dir == "bull" and "bear" in recent_dirs.iloc[:-1].values:
+        if rsi is not None and rsi > 72:
+            return None
+        if vwap is not None and close < vwap * 0.998:
+            return None
+        direction = "LONG"
+        stop_loss = round(st_val * 0.998, 2) if st_val else round(close - atr, 2)
+        risk      = abs(close - stop_loss)
+        if risk == 0 or stop_loss >= close:
+            return None
+        target_1 = round(close + risk * MIN_RISK_REWARD, 2)
+        target_2 = round(close + risk * 2.5, 2)
+        rr       = round((target_1 - close) / risk, 2)
+        name     = fund_info.get("longName", ticker) if fund_info else ticker
+        sector   = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+        st_str   = f"{st_val:.2f}" if st_val else "N/A"
+        rsi_note = f" RSI {rsi:.0f}." if rsi else ""
+        reasoning = (
+            f"Supertrend flipped BULLISH: Price {close:.2f} above Supertrend support {st_str}.{rsi_note} "
+            f"Entry: {close:.2f}, SL: {stop_loss:.2f}, T1: {target_1:.2f}."
+        )
+        return TradeSignal(
+            ticker=ticker, name=name, direction=direction,
+            entry_price=round(close, 2), stop_loss=stop_loss,
+            target_1=target_1, target_2=target_2, risk_reward=rr,
+            confidence=4 if (rsi is not None and 50 <= rsi <= 65) else 3,
+            strategy="Supertrend Signal", timeframe="INTRADAY",
+            technical_score=0.7, fundamental_score=0.5, sentiment_score=0.5,
+            reasoning=reasoning, patterns=["Supertrend Bull"],
+            current_price=close, sector=sector,
+        )
 
-    name   = fund_info.get("longName", ticker) if fund_info else ticker
-    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
-    st_str = f"{st_val:.2f}" if st_val else "N/A"
-    rsi_note = f" RSI {rsi:.0f}." if rsi else ""
-    reasoning = (
-        f"Supertrend flipped BULLISH: Price {close:.2f} above Supertrend support {st_str}.{rsi_note} "
-        f"Entry: {close:.2f}, SL: {stop_loss:.2f}, T1: {target_1:.2f}."
-    )
+    # ── Bearish flip ─────────────────────────────────────────────────────────
+    if st_dir == "bear" and "bull" in recent_dirs.iloc[:-1].values:
+        if rsi is not None and rsi < 28:
+            return None
+        if vwap is not None and close > vwap * 1.002:
+            return None
+        direction = "SHORT"
+        stop_loss = round(st_val * 1.002, 2) if st_val else round(close + atr, 2)
+        risk      = abs(stop_loss - close)
+        if risk == 0 or stop_loss <= close:
+            return None
+        target_1 = round(close - risk * MIN_RISK_REWARD, 2)
+        target_2 = round(close - risk * 2.5, 2)
+        rr       = round((close - target_1) / risk, 2)
+        if target_1 <= 0:
+            return None
+        name     = fund_info.get("longName", ticker) if fund_info else ticker
+        sector   = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+        st_str   = f"{st_val:.2f}" if st_val else "N/A"
+        rsi_note = f" RSI {rsi:.0f}." if rsi else ""
+        reasoning = (
+            f"Supertrend flipped BEARISH: Price {close:.2f} below Supertrend resistance {st_str}.{rsi_note} "
+            f"Entry: {close:.2f}, SL: {stop_loss:.2f}, T1: {target_1:.2f}."
+        )
+        return TradeSignal(
+            ticker=ticker, name=name, direction=direction,
+            entry_price=round(close, 2), stop_loss=stop_loss,
+            target_1=target_1, target_2=target_2, risk_reward=rr,
+            confidence=4 if (rsi is not None and 35 <= rsi <= 50) else 3,
+            strategy="Supertrend Signal", timeframe="INTRADAY",
+            technical_score=0.7, fundamental_score=0.5, sentiment_score=0.5,
+            reasoning=reasoning, patterns=["Supertrend Bear"],
+            current_price=close, sector=sector,
+        )
 
-    return TradeSignal(
-        ticker=ticker, name=name, direction=direction,
-        entry_price=round(close, 2), stop_loss=stop_loss,
-        target_1=target_1, target_2=target_2, risk_reward=rr,
-        confidence=4 if (rsi is not None and 50 <= rsi <= 65) else 3,
-        strategy="Supertrend Signal", timeframe="INTRADAY",
-        technical_score=0.7, fundamental_score=0.5, sentiment_score=0.5,
-        reasoning=reasoning, patterns=["Supertrend Bull"],
-        current_price=close, sector=sector,
-    )
+    return None
 
 
 def generate_intraday_signals(

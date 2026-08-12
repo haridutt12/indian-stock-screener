@@ -1,6 +1,7 @@
 """
 Page 4: Technical Screener
 """
+import datetime as _dt
 import streamlit as st
 import pandas as pd
 from data.fetcher import fetch_stock_data
@@ -269,7 +270,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 display_cols = ["ticker", "close", "rsi", "trend", "tech_strength", "volume_ratio", "macd_bullish", "patterns", "support", "resistance"]
-st.dataframe(result_df[[c for c in display_cols if c in result_df.columns]], use_container_width=True, hide_index=True)
+_show_df = result_df[[c for c in display_cols if c in result_df.columns]]
+st.dataframe(_show_df, use_container_width=True, hide_index=True)
+
+_csv_col, _ = st.columns([1, 4])
+with _csv_col:
+    st.download_button(
+        "⬇ Export CSV",
+        data=_show_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"niftyedge_screener_{_dt.date.today().isoformat()}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
 
 # ── CHART DETAIL ──────────────────────────────────────────────────────────────────────────────
 st.markdown('<div style="margin-top:8px;"></div>', unsafe_allow_html=True)

@@ -70,6 +70,10 @@ _STRATEGY_TYPE = {
     "VWAP Bounce":            "MEAN_REVERT",
     "EMA Crossover":          "MOMENTUM",
     "Supertrend Signal":      "TREND",
+    # SHORT strategies
+    "Death Cross":            "MOMENTUM",
+    "Overbought Reversal":    "REVERSAL",
+    "Trend Breakdown":        "BREAKOUT",
 }
 
 
@@ -1051,6 +1055,105 @@ with tab_perf:
             st.dataframe(_df_s, use_container_width=True)
             if any(s["wins"] + s["losses"] < 3 for s in by_strat.values()):
                 st.caption("Win Rate shows — for strategies with fewer than 3 closed trades (too small a sample).")
+
+        # ── Sector Allocation + Nifty 50 Benchmark ────────────────────────────
+        _perf_c1, _perf_c2 = st.columns(2)
+
+        with _perf_c1:
+            st.markdown(
+                '<div style="font-size:0.78rem;font-weight:700;color:#94a3b8;margin:16px 0 6px;">'
+                'Open Positions — Sector Allocation</div>',
+                unsafe_allow_html=True,
+            )
+            if open_signals:
+                _sec_count: dict = {}
+                for _s in open_signals:
+                    _sec = (_s.get("sector") or "Unknown").strip() or "Unknown"
+                    _sec_count[_sec] = _sec_count.get(_sec, 0) + 1
+                _sec_labels = list(_sec_count.keys())
+                _sec_vals   = list(_sec_count.values())
+                _sec_colors = [
+                    "#7c83fd", "#00c896", "#f0b429", "#ff4d6d",
+                    "#5AD8A6", "#ff8c42", "#a78bfa", "#34d399",
+                ][:len(_sec_labels)]
+                _sfig = go.Figure(go.Pie(
+                    labels=_sec_labels, values=_sec_vals,
+                    marker=dict(colors=_sec_colors),
+                    hole=0.45,
+                    textinfo="label+percent",
+                    textfont=dict(size=11),
+                ))
+                _sfig.update_layout(
+                    margin=dict(t=10, b=10, l=10, r=10), height=240,
+                    showlegend=False,
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(_sfig, use_container_width=True)
+            else:
+                st.caption("No open positions.")
+
+        with _perf_c2:
+            st.markdown(
+                '<div style="font-size:0.78rem;font-weight:700;color:#94a3b8;margin:16px 0 6px;">'
+                'Portfolio Return vs Nifty 50</div>',
+                unsafe_allow_html=True,
+            )
+            if total_closed > 0 and _closed_dated:
+                _first_date = _closed_dated[0]["outcome_at"][:10]
+                try:
+                    _nifty_df = yf.Ticker("^NSEI").history(
+                        start=_first_date, end=today_str, interval="1d", auto_adjust=True
+                    )
+                    if _nifty_df is not None and len(_nifty_df) >= 2:
+                        _nifty_start = float(_nifty_df["Close"].iloc[0])
+                        _nifty_end   = float(_nifty_df["Close"].iloc[-1])
+                        _nifty_ret   = (_nifty_end - _nifty_start) / _nifty_start * 100
+                    else:
+                        _nifty_ret = None
+                except Exception:
+                    _nifty_ret = None
+
+                _port_ret_pct = _portfolio_ret
+                _bfig = go.Figure()
+                _b_labels = ["My Portfolio"]
+                _b_values = [_port_ret_pct]
+                _b_colors = ["#00c896" if _port_ret_pct >= 0 else "#ff4d6d"]
+                if _nifty_ret is not None:
+                    _b_labels.append("Nifty 50")
+                    _b_values.append(_nifty_ret)
+                    _b_colors.append("#7c83fd")
+
+                _bfig.add_trace(go.Bar(
+                    x=_b_labels, y=_b_values,
+                    marker_color=_b_colors,
+                    text=[f"{v:+.1f}%" for v in _b_values],
+                    textposition="outside",
+                    textfont=dict(size=13, color="#e2e8f0"),
+                ))
+                _bfig.add_hline(y=0, line_color="rgba(255,255,255,0.15)", line_width=1)
+                _bfig.update_layout(
+                    margin=dict(t=30, b=20, l=30, r=30), height=240,
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    yaxis=dict(
+                        title="Return (%)",
+                        gridcolor="rgba(255,255,255,0.04)",
+                        ticksuffix="%",
+                    ),
+                    xaxis=dict(showgrid=False),
+                    showlegend=False,
+                )
+                st.plotly_chart(_bfig, use_container_width=True)
+                if _nifty_ret is not None:
+                    _alpha = _port_ret_pct - _nifty_ret
+                    _alpha_col = "#00c896" if _alpha >= 0 else "#ff4d6d"
+                    st.markdown(
+                        f'<div style="font-size:0.72rem;color:#475569;text-align:center;margin-top:-8px;">'
+                        f'Alpha vs Nifty: <span style="color:{_alpha_col};font-weight:700;">'
+                        f'{_alpha:+.1f}%</span> · since {_first_date}</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.caption("Close trades to see benchmark comparison.")
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════════╗
