@@ -188,6 +188,27 @@ CREATE TABLE IF NOT EXISTS allowed_users (
 )
 """
 
+_CREATE_SENTIMENT_HISTORY_SQL = """
+CREATE TABLE IF NOT EXISTS sentiment_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    date       TEXT    NOT NULL UNIQUE,
+    score      REAL    NOT NULL,
+    label      TEXT    NOT NULL,
+    key_themes TEXT,
+    created_at TEXT    NOT NULL
+)
+"""
+_CREATE_SENTIMENT_HISTORY_PG_SQL = """
+CREATE TABLE IF NOT EXISTS sentiment_history (
+    id         SERIAL  PRIMARY KEY,
+    date       TEXT    NOT NULL UNIQUE,
+    score      REAL    NOT NULL,
+    label      TEXT    NOT NULL,
+    key_themes TEXT,
+    created_at TEXT    NOT NULL
+)
+"""
+
 
 def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     # entry_price intentionally excluded — price fluctuates between scans,
@@ -322,6 +343,14 @@ class SignalLogger:
                 self._exec(conn, _au_sql)
         except Exception as _aue:
             logger.warning("allowed_users table creation failed (non-fatal): %s", _aue)
+
+        # Sentiment history table — non-fatal if creation fails
+        try:
+            _sh_sql = _CREATE_SENTIMENT_HISTORY_PG_SQL if _USE_PG else _CREATE_SENTIMENT_HISTORY_SQL
+            with self._db_conn() as conn:
+                self._exec(conn, _sh_sql)
+        except Exception as _she:
+            logger.warning("sentiment_history table creation failed (non-fatal): %s", _she)
 
         # Dedup migration — runs every startup, fully idempotent.
         # Step 1: try to create the unique index directly (no-op if it exists).
@@ -506,6 +535,64 @@ class SignalLogger:
                 self._exec(conn, sql, (round(new_stop, 2), signal_id, OUTCOME_OPEN))
         except Exception as exc:
             logger.error(f"SignalLogger.update_stop_loss failed ({signal_id}): {exc}")
+
+    # ── Sentiment history ────────────────────────────────────────────────────────────
+
+    def log_daily_sentiment(
+        self,
+        score: float,
+        label: str,
+        key_themes: list[str] | None = None,
+        date_str: str | None = None,
+    ) -> None:
+        """Upsert today's market sentiment score. Called by scheduler + News page."""
+        today = date_str or date.today().isoformat()
+        themes_json = json.dumps(key_themes or [])
+        now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        if _USE_PG:
+            sql = """
+                INSERT INTO sentiment_history (date, score, label, key_themes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (date) DO UPDATE SET
+                    score=EXCLUDED.score, label=EXCLUDED.label,
+                    key_themes=EXCLUDED.key_themes, created_at=EXCLUDED.created_at
+            """
+        else:
+            sql = """
+                INSERT OR REPLACE INTO sentiment_history (date, score, label, key_themes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, sql, (today, round(score, 2), label, themes_json, now_str))
+        except Exception as exc:
+            logger.error(f"SignalLogger.log_daily_sentiment failed: {exc}")
+
+    def get_sentiment_history(self, days: int = 30) -> list[dict]:
+        """Return daily sentiment rows for the past N days, oldest first."""
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        sql = """
+            SELECT date, score, label, key_themes
+            FROM sentiment_history
+            WHERE date >= ?
+            ORDER BY date ASC
+        """
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(conn, sql, (cutoff,))
+                rows = cur.fetchall()
+                result = []
+                for r in rows:
+                    row = dict(r)
+                    try:
+                        row["key_themes"] = json.loads(row.get("key_themes") or "[]")
+                    except Exception:
+                        row["key_themes"] = []
+                    result.append(row)
+                return result
+        except Exception as exc:
+            logger.warning(f"SignalLogger.get_sentiment_history failed: {exc}")
+            return []
 
     # ── Read ──────────────────────────────────────────────────────────────────────────
 

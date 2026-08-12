@@ -52,6 +52,17 @@ except Exception:
     sentiment = {}
 analyse_banner.empty()
 
+# Persist today's score for the 30-day trend chart (non-blocking)
+try:
+    from signals.signal_logger import get_signal_logger as _get_sl
+    _get_sl().log_daily_sentiment(
+        score=float(sentiment.get("overall_sentiment", 5)),
+        label=sentiment.get("sentiment_label", "Neutral"),
+        key_themes=sentiment.get("key_themes", []),
+    )
+except Exception:
+    pass
+
 # ── PARSE SENTIMENT DATA ─────────────────────────────────────────────────────────────────────
 overall   = sentiment.get("overall_sentiment", 5)
 label     = sentiment.get("sentiment_label", "Neutral")
@@ -124,6 +135,108 @@ st.markdown(
     f'</div></div>',
     unsafe_allow_html=True,
 )
+
+# ── 30-DAY SENTIMENT TREND SPARKLINE ──────────────────────────────────────────────────────────────
+try:
+    import plotly.graph_objects as _go
+    from signals.signal_logger import get_signal_logger as _get_sl
+
+    _hist = _get_sl().get_sentiment_history(days=30)
+
+    if len(_hist) >= 2:
+        _dates  = [r["date"]  for r in _hist]
+        _scores = [r["score"] for r in _hist]
+        _labels = [r["label"] for r in _hist]
+
+        _bar_colors = [
+            "#00c896" if s >= 6 else ("#f0b429" if s >= 4 else "#ff4d6d")
+            for s in _scores
+        ]
+
+        _trend_fig = _go.Figure()
+
+        # Shaded bands for bearish / neutral / bullish zones
+        for _y0, _y1, _fc in [(1, 3.5, "rgba(255,77,109,0.05)"),
+                               (3.5, 6.5, "rgba(240,180,41,0.04)"),
+                               (6.5, 10, "rgba(0,200,150,0.05)")]:
+            _trend_fig.add_hrect(
+                y0=_y0, y1=_y1,
+                fillcolor=_fc, layer="below", line_width=0,
+            )
+
+        # Reference lines
+        for _yref, _ycol, _ytxt in [(3.5, "#ff4d6d", "Bearish"), (6.5, "#00c896", "Bullish")]:
+            _trend_fig.add_hline(
+                y=_yref,
+                line=dict(color=_ycol, width=1, dash="dot"),
+                annotation_text=_ytxt,
+                annotation_position="right",
+                annotation_font=dict(color=_ycol, size=10),
+            )
+
+        # Score bars
+        _trend_fig.add_trace(_go.Bar(
+            x=_dates,
+            y=_scores,
+            marker_color=_bar_colors,
+            marker_line_width=0,
+            customdata=[[_l] for _l in _labels],
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Score: <b>%{y}/10</b><br>"
+                "%{customdata[0]}<extra></extra>"
+            ),
+        ))
+
+        # Trend line overlay
+        _trend_fig.add_trace(_go.Scatter(
+            x=_dates,
+            y=_scores,
+            mode="lines",
+            line=dict(color="rgba(255,255,255,0.25)", width=1.5, dash="solid"),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+        _trend_fig.update_layout(
+            height=160,
+            margin=dict(t=24, b=20, l=40, r=70),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            yaxis=dict(
+                range=[1, 10],
+                tickvals=[1, 3.5, 6.5, 10],
+                ticktext=["1", "Bearish", "Bullish", "10"],
+                gridcolor="rgba(255,255,255,0.04)",
+                color="#475569",
+                tickfont=dict(size=10),
+            ),
+            xaxis=dict(
+                showgrid=False,
+                color="#475569",
+                tickfont=dict(size=10),
+            ),
+            showlegend=False,
+            bargap=0.25,
+            title=dict(
+                text="30-Day Sentiment Trend",
+                font=dict(size=11, color="#64748b"),
+                x=0,
+                xanchor="left",
+            ),
+        )
+
+        st.plotly_chart(_trend_fig, use_container_width=True, config={"displayModeBar": False})
+    elif _hist:
+        # Only one data point — show a nudge
+        st.markdown(
+            f'<div style="font-size:0.72rem;color:#475569;margin-bottom:12px;">'
+            f'Sentiment history will grow as the app runs daily. '
+            f'{len(_hist)} day recorded so far.</div>',
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
 
 # ── SUMMARY + SECTOR OUTLOOK ───────────────────────────────────────────────────────────────────────
 left, right = st.columns([3, 2])

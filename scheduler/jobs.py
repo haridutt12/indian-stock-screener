@@ -51,6 +51,17 @@ def run_pre_market_scan():
         )
         sentiment_score = sentiment.get("overall_sentiment", 5) / 10
 
+        # Persist today's sentiment for the 30-day sparkline
+        try:
+            from signals.signal_logger import get_signal_logger as _get_sl
+            _get_sl().log_daily_sentiment(
+                score=float(sentiment.get("overall_sentiment", 5)),
+                label=sentiment.get("sentiment_label", "Neutral"),
+                key_themes=sentiment.get("key_themes", []),
+            )
+        except Exception as _se:
+            logger.warning(f"Sentiment history log failed: {_se}")
+
         tickers = list(NIFTY_50.values())
         # generate_swing_signals already calls log_signals + notify_swing_signals internally
         signals = generate_swing_signals(tickers, sentiment_score=sentiment_score, use_cache=False)
