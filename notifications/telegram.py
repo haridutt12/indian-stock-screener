@@ -299,6 +299,34 @@ def notify_trade_resolved(signal: dict, outcome: str, price: float, pnl_pct: flo
         return False
 
 
+# ── Price Alerts ───────────────────────────────────────────────────────────────
+
+def format_price_alert(ticker: str, condition: str, alert_price: float, current_price: float, label: str = "") -> str:
+    now = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+    emoji = "🔔"
+    cond_str = "crossed above" if condition == "above" else "dropped below"
+    label_line = f"\n📝 <i>{label}</i>" if label else ""
+    return (
+        f"{emoji} <b>PRICE ALERT — {ticker}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Alert: {ticker} {cond_str} ₹{alert_price:,.2f}{label_line}\n\n"
+        f"Alert Price: ₹{alert_price:,.2f}\n"
+        f"Current:     ₹{current_price:,.2f}\n\n"
+        f"🕐 {now}"
+    )
+
+
+def notify_price_alert(ticker: str, condition: str, alert_price: float, current_price: float, label: str = "") -> bool:
+    """Fire a Telegram alert when a price alert is triggered."""
+    if not is_configured():
+        return False
+    try:
+        return send_message(format_price_alert(ticker, condition, alert_price, current_price, label))
+    except Exception as e:
+        logger.error(f"notify_price_alert failed: {e}")
+        return False
+
+
 # ── Daily Top 3 ────────────────────────────────────────────────────────────────
 
 _MEDAL = ["🥇", "🥈", "🥉"]

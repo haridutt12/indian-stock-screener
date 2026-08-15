@@ -209,6 +209,22 @@ CREATE TABLE IF NOT EXISTS sentiment_history (
 )
 """
 
+_CREATE_PRICE_ALERTS_SQL = """
+CREATE TABLE IF NOT EXISTS price_alerts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker       TEXT    NOT NULL,
+    alert_price  REAL    NOT NULL,
+    condition    TEXT    NOT NULL,
+    label        TEXT,
+    created_at   TEXT    NOT NULL,
+    triggered    INTEGER NOT NULL DEFAULT 0,
+    triggered_at TEXT
+)
+"""
+_CREATE_PRICE_ALERTS_PG_SQL = _CREATE_PRICE_ALERTS_SQL.replace(
+    "INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"
+)
+
 
 def _make_signal_id(signal: "TradeSignal", date_str: str) -> str:
     # entry_price intentionally excluded — price fluctuates between scans,
@@ -351,6 +367,14 @@ class SignalLogger:
                 self._exec(conn, _sh_sql)
         except Exception as _she:
             logger.warning("sentiment_history table creation failed (non-fatal): %s", _she)
+
+        # Price alerts table — non-fatal if creation fails
+        try:
+            _pa_sql = _CREATE_PRICE_ALERTS_PG_SQL if _USE_PG else _CREATE_PRICE_ALERTS_SQL
+            with self._db_conn() as conn:
+                self._exec(conn, _pa_sql)
+        except Exception as _pae:
+            logger.warning("price_alerts table creation failed (non-fatal): %s", _pae)
 
         # Dedup migration — runs every startup, fully idempotent.
         # Step 1: try to create the unique index directly (no-op if it exists).
@@ -974,6 +998,73 @@ class SignalLogger:
                 ]
         except Exception as exc:
             logger.error("list_allowed_users failed: %s", exc)
+            return []
+
+    # ── Price Alerts ────────────────────────────────────────────────────────────────────
+
+    def add_price_alert(
+        self,
+        ticker: str,
+        alert_price: float,
+        condition: str,
+        label: str = "",
+    ) -> int:
+        """Insert a new price alert. condition must be 'above' or 'below'. Returns the new row id."""
+        now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        sql = """
+            INSERT INTO price_alerts (ticker, alert_price, condition, label, created_at, triggered)
+            VALUES (?, ?, ?, ?, ?, 0)
+        """
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(conn, sql, (ticker, round(alert_price, 2), condition, label or "", now_str))
+                if _USE_PG:
+                    cur2 = self._exec(conn, "SELECT lastval()")
+                    row = cur2.fetchone()
+                    return int(row[0]) if row else -1
+                return cur.lastrowid or -1
+        except Exception as exc:
+            logger.error("add_price_alert failed: %s", exc)
+            return -1
+
+    def get_active_alerts(self) -> list[dict]:
+        """Return all alerts that have not been triggered yet."""
+        sql = "SELECT * FROM price_alerts WHERE triggered=0 ORDER BY created_at DESC"
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(conn, sql)
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as exc:
+            logger.error("get_active_alerts failed: %s", exc)
+            return []
+
+    def mark_alert_triggered(self, alert_id: int) -> None:
+        """Mark a price alert as triggered (idempotent)."""
+        now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        sql = "UPDATE price_alerts SET triggered=1, triggered_at=? WHERE id=?"
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, sql, (now_str, alert_id))
+        except Exception as exc:
+            logger.error("mark_alert_triggered failed: %s", exc)
+
+    def delete_price_alert(self, alert_id: int) -> None:
+        """Permanently remove a price alert by id."""
+        try:
+            with self._db_conn() as conn:
+                self._exec(conn, "DELETE FROM price_alerts WHERE id=?", (alert_id,))
+        except Exception as exc:
+            logger.error("delete_price_alert failed: %s", exc)
+
+    def get_all_alerts(self) -> list[dict]:
+        """Return all alerts (active and triggered), newest first."""
+        sql = "SELECT * FROM price_alerts ORDER BY created_at DESC"
+        try:
+            with self._db_conn() as conn:
+                cur = self._exec(conn, sql)
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as exc:
+            logger.error("get_all_alerts failed: %s", exc)
             return []
 
     def purge_non_trading_day_signals(self) -> int:

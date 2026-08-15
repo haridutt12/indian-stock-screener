@@ -2,9 +2,10 @@
 import os
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
-from datetime import date
+from datetime import date, datetime, timedelta
 
 st.set_page_config(
     page_title="Portfolio Health · NiftyEdge",
@@ -92,6 +93,56 @@ def _price_data(ticker_ns: str) -> dict:
         chg_1m=chg_1m, high_52w=high_52w,
         pct_from_high=pct_from_high, sector=sector,
     )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _risk_metrics(tickers_tuple: tuple, weights_tuple: tuple) -> dict:
+    """Compute portfolio beta and max drawdown from 1-year daily prices."""
+    tickers = list(tickers_tuple)
+    weights = list(weights_tuple)
+    try:
+        all_tickers = tickers + ["^NSEI"]
+        raw = yf.download(all_tickers, period="1y", interval="1d",
+                          auto_adjust=True, progress=False)["Close"]
+        raw = raw.dropna(how="all")
+        if raw.empty:
+            return {}
+
+        # Portfolio daily value series
+        port_val = None
+        for tkr, wt in zip(tickers, weights):
+            col = tkr if tkr in raw.columns else None
+            if col is None:
+                continue
+            series = raw[col].dropna()
+            if series.empty:
+                continue
+            normalised = wt * (series / series.iloc[0])
+            port_val = normalised if port_val is None else port_val.add(normalised, fill_value=0)
+
+        if port_val is None or port_val.empty:
+            return {}
+
+        # Max Drawdown
+        roll_max = port_val.cummax()
+        drawdown = (port_val - roll_max) / roll_max
+        max_dd = float(drawdown.min()) * 100
+
+        # Beta vs Nifty
+        nifty_col = "^NSEI" if "^NSEI" in raw.columns else None
+        beta = None
+        if nifty_col:
+            port_ret  = port_val.pct_change().dropna()
+            nifty_ret = raw[nifty_col].pct_change().dropna()
+            aligned   = pd.concat([port_ret, nifty_ret], axis=1).dropna()
+            if len(aligned) > 20:
+                cov   = aligned.iloc[:, 0].cov(aligned.iloc[:, 1])
+                var_n = aligned.iloc[:, 1].var()
+                beta  = round(cov / var_n, 2) if var_n else None
+
+        return {"max_drawdown_pct": round(max_dd, 2), "beta": beta}
+    except Exception:
+        return {}
 
 
 # ── Prompt builder ───────────────────────────────────────────────────────────
@@ -345,6 +396,12 @@ st.dataframe(
         "From 52W H": st.column_config.NumberColumn(format="%.2f %%"),
     },
 )
+st.download_button(
+    "⬇ Export Holdings CSV",
+    data=df.to_csv(index=False).encode("utf-8"),
+    file_name=f"portfolio_{date.today().isoformat()}.csv",
+    mime="text/csv",
+)
 
 # ── Edit positions ─────────────────────────────────────────────────────────────
 with st.expander("✏️ Edit Positions"):
@@ -381,14 +438,125 @@ with st.expander("\U0001f5d1️ Remove Positions"):
         _save_portfolio(st.session_state["portfolio"])
         st.rerun()
 
+# ── Sector Allocation + Risk Metrics ──────────────────────────────────────────
+st.markdown('<div style="margin:20px 0 10px;border-top:1px solid rgba(255,255,255,0.06);"></div>', unsafe_allow_html=True)
+
+_ch1, _ch2 = st.columns([1, 1])
+
+with _ch1:
+    # Sector allocation donut
+    _sector_vals: dict[str, float] = {}
+    for _hr in holdings:
+        _pd = prices[_hr["name"]]
+        _sec = _pd.get("sector") or "Unknown"
+        _val = _hr["qty"] * _pd.get("price", _hr["avg_price"])
+        _sector_vals[_sec] = _sector_vals.get(_sec, 0) + _val
+
+    _sec_labels = list(_sector_vals.keys())
+    _sec_values = [_sector_vals[s] for s in _sec_labels]
+    _sec_colors = [
+        "#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6",
+        "#06b6d4", "#f97316", "#ec4899", "#10b981", "#6366f1",
+    ]
+
+    _donut_fig = go.Figure(go.Pie(
+        labels=_sec_labels,
+        values=_sec_values,
+        hole=0.55,
+        marker=dict(colors=_sec_colors[:len(_sec_labels)], line=dict(color="#0f172a", width=2)),
+        textinfo="label+percent",
+        textfont=dict(size=10, color="#e2e8f0"),
+        hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<br>%{percent}<extra></extra>",
+    ))
+    _top_sec = max(_sector_vals, key=_sector_vals.get) if _sector_vals else ""
+    _top_pct = _sector_vals.get(_top_sec, 0) / total_cur * 100 if total_cur else 0
+    _donut_fig.add_annotation(
+        text=f"<b>{_top_sec}</b><br>{_top_pct:.0f}%",
+        x=0.5, y=0.5, showarrow=False,
+        font=dict(size=11, color="#f1f5f9"),
+        xanchor="center",
+    )
+    _donut_fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=28, b=0), height=280,
+        title=dict(text="Sector Allocation", font=dict(color="#94a3b8", size=12)),
+        showlegend=False,
+    )
+    st.plotly_chart(_donut_fig, use_container_width=True)
+
+with _ch2:
+    # Risk metrics: Beta + Max Drawdown
+    st.markdown(
+        '<div style="font-size:0.72rem;font-weight:700;color:#94a3b8;'
+        'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Risk Metrics</div>',
+        unsafe_allow_html=True,
+    )
+    with st.spinner("Computing risk metrics…"):
+        _tickers_tuple = tuple(h["ticker"] for h in holdings)
+        _weights_tuple = tuple(
+            h["qty"] * prices[h["name"]].get("price", h["avg_price"])
+            for h in holdings
+        )
+        _w_total = sum(_weights_tuple) or 1.0
+        _weights_norm = tuple(w / _w_total for w in _weights_tuple)
+        _risk = _risk_metrics(_tickers_tuple, _weights_norm)
+
+    _beta = _risk.get("beta")
+    _mdd  = _risk.get("max_drawdown_pct")
+    _concentration = max(_sector_vals.values()) / total_cur * 100 if total_cur else 0
+    _top_stock_pct = (
+        max(h["qty"] * prices[h["name"]].get("price", h["avg_price"])
+            for h in holdings) / total_cur * 100
+        if holdings and total_cur else 0
+    )
+
+    for _lbl, _val, _sub, _clr in [
+        ("Portfolio Beta",
+         f"{_beta:.2f}" if _beta is not None else "—",
+         "vs Nifty 50 (1Y)",
+         "#f0b429" if _beta is not None and _beta > 1.3 else "#00c896"),
+        ("Max Drawdown",
+         f"{_mdd:.1f}%" if _mdd is not None else "—",
+         "Worst peak-to-trough (1Y)",
+         "#ff4d6d" if _mdd is not None and _mdd < -20 else "#f0b429" if _mdd is not None and _mdd < -10 else "#00c896"),
+        ("Top Sector",
+         f"{_top_pct:.0f}%",
+         _top_sec,
+         "#ff4d6d" if _top_pct > 40 else "#f0b429" if _top_pct > 25 else "#00c896"),
+        ("Largest Position",
+         f"{_top_stock_pct:.0f}%",
+         "of portfolio value",
+         "#ff4d6d" if _top_stock_pct > 20 else "#f0b429" if _top_stock_pct > 15 else "#00c896"),
+    ]:
+        st.markdown(
+            f'<div style="background:rgba(255,255,255,0.03);border-radius:10px;'
+            f'padding:10px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.06);">'
+            f'<div style="font-size:0.6rem;color:#475569;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.07em;">{_lbl}</div>'
+            f'<div style="font-size:1.15rem;font-weight:800;color:{_clr};margin:2px 0 1px;">{_val}</div>'
+            f'<div style="font-size:0.6rem;color:#374151;">{_sub}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+st.markdown('<div style="margin:16px 0 12px;border-top:1px solid rgba(255,255,255,0.06);"></div>', unsafe_allow_html=True)
+
 st.markdown(
-    '<div style="margin:16px 0 12px;border-top:1px solid rgba(255,255,255,0.06);"></div>'
     '<div style="font-size:0.65rem;font-weight:700;color:#22c55e;'
     'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">\U0001f916 AI Analysis</div>',
     unsafe_allow_html=True,
 )
 
-run_btn = st.button("\U0001f916 Run AI Portfolio Analysis", type="primary")
+_ai_col1, _ai_col2 = st.columns([3, 1])
+with _ai_col1:
+    run_btn = st.button("\U0001f916 Run AI Portfolio Analysis", type="primary")
+with _ai_col2:
+    if st.button("🗑 Clear Cache", help="Re-run analysis fresh"):
+        st.session_state.pop("_portfolio_ai_result", None)
+        st.rerun()
+
+if st.session_state.get("_portfolio_ai_result"):
+    render_ai_card(st.session_state["_portfolio_ai_result"], accent="#22c55e")
 
 if run_btn:
     api_key = (os.environ.get("GROQ_API_KEY") or
@@ -402,11 +570,25 @@ if run_btn:
     prompt_text = _build_prompt(holdings, prices)
 
     try:
-        with st.spinner("Generating analysis…"):
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt_text}],
+        stream = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_text}],
+            stream=True,
+        )
+        _ai_placeholder = st.empty()
+        _full_text = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            _full_text += delta
+            _ai_placeholder.markdown(
+                f'<div style="background:linear-gradient(145deg,#0d1b2a,#0a1628);'
+                f'border:1px solid rgba(34,197,94,0.25);border-radius:14px;'
+                f'padding:20px 24px;margin-top:8px;font-size:0.88rem;color:#e2e8f0;'
+                f'line-height:1.7;">{_full_text.replace(chr(10), "<br>")}</div>',
+                unsafe_allow_html=True,
             )
-        render_ai_card(response.choices[0].message.content, accent="#22c55e")
+        _ai_placeholder.empty()
+        st.session_state["_portfolio_ai_result"] = _full_text
+        render_ai_card(_full_text, accent="#22c55e")
     except Exception as exc:
         st.error(f"AI analysis failed: {exc}")

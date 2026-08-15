@@ -149,6 +149,60 @@ with st.sidebar:
     )
 
     st.divider()
+    st.subheader("🔔 Price Alerts")
+    try:
+        from config.stock_universe import NIFTY_50, NIFTY_200
+        _alert_universe = {**NIFTY_50, **NIFTY_200}
+    except Exception:
+        _alert_universe = {}
+    with st.form("price_alert_form", clear_on_submit=True):
+        _al_stock = st.selectbox("Stock", sorted(_alert_universe.keys()), key="pa_stock")
+        _al_price = st.number_input("Alert Price (₹)", min_value=0.01, value=100.0,
+                                     step=0.5, format="%.2f", key="pa_price")
+        _al_cond  = st.radio("Trigger when price", ["above", "below"], horizontal=True, key="pa_cond")
+        _al_label = st.text_input("Label (optional)", key="pa_label", max_chars=60)
+        _al_submit = st.form_submit_button("Set Alert", type="primary", use_container_width=True)
+
+    if _al_submit and _alert_universe:
+        _al_ticker = _alert_universe.get(_al_stock, _al_stock)
+        if not _al_ticker.endswith(".NS"):
+            _al_ticker += ".NS"
+        _al_id = get_signal_logger().add_price_alert(
+            ticker=_al_ticker,
+            alert_price=float(_al_price),
+            condition=_al_cond,
+            label=_al_label.strip(),
+        )
+        if _al_id > 0:
+            st.success(f"Alert set: {_al_stock} {_al_cond} ₹{_al_price:,.2f}")
+        else:
+            st.error("Failed to save alert. Check logs.")
+
+    # Show active alerts
+    try:
+        _active_alerts = get_signal_logger().get_active_alerts()
+        if _active_alerts:
+            st.caption(f"{len(_active_alerts)} active alert{'s' if len(_active_alerts)!=1 else ''}")
+            for _pal in _active_alerts:
+                _pa_ticker_disp = _pal["ticker"].replace(".NS", "")
+                _pa_col1, _pa_col2 = st.columns([4, 1])
+                with _pa_col1:
+                    _pa_cond_arrow = "↑" if _pal["condition"] == "above" else "↓"
+                    st.markdown(
+                        f'<div style="font-size:0.72rem;color:#e2e8f0;padding:2px 0;">'
+                        f'<b>{_pa_ticker_disp}</b> {_pa_cond_arrow} ₹{_pal["alert_price"]:,.2f}'
+                        + (f'<br><span style="color:#64748b;font-size:0.62rem;">{_pal["label"]}</span>' if _pal.get("label") else "")
+                        + '</div>',
+                        unsafe_allow_html=True,
+                    )
+                with _pa_col2:
+                    if st.button("✕", key=f"del_alert_{_pal['id']}", help="Remove alert"):
+                        get_signal_logger().delete_price_alert(_pal["id"])
+                        st.rerun()
+    except Exception:
+        pass
+
+    st.divider()
     user_sidebar()
 # ── Core data ─────────────────────────────────────────────────────────────────────────────────────────────
 log       = get_signal_logger()
@@ -834,6 +888,43 @@ with tab_live:
                         st.rerun()
                 except Exception:
                     st.session_state["_auto_resolving"] = False
+
+            # Check price alerts every fragment cycle
+            if _is_live:
+                try:
+                    _active_alerts = log.get_active_alerts()
+                    _triggered_count = 0
+                    for _pal in _active_alerts:
+                        _pa_ticker = _pal["ticker"]
+                        _pa_price  = float(_pal["alert_price"])
+                        _pa_cond   = _pal["condition"]
+                        try:
+                            _pa_curr = float(yf.Ticker(_pa_ticker).fast_info.last_price)
+                        except Exception:
+                            continue
+                        _triggered = (
+                            (_pa_cond == "above" and _pa_curr >= _pa_price) or
+                            (_pa_cond == "below" and _pa_curr <= _pa_price)
+                        )
+                        if _triggered:
+                            log.mark_alert_triggered(_pal["id"])
+                            _triggered_count += 1
+                            try:
+                                from notifications.telegram import notify_price_alert
+                                notify_price_alert(
+                                    ticker=_pa_ticker.replace(".NS", ""),
+                                    condition=_pa_cond,
+                                    alert_price=_pa_price,
+                                    current_price=_pa_curr,
+                                    label=_pal.get("label", ""),
+                                )
+                            except Exception:
+                                pass
+                    if _triggered_count:
+                        st.toast(f"🔔 {_triggered_count} price alert(s) triggered!", icon="🔔")
+                        st.rerun()
+                except Exception:
+                    pass
 
         _live_positions()
 
