@@ -541,19 +541,20 @@ with tab_live:
                 dir_arr   = "↑ LONG" if is_long else "↓ SHORT"
 
                 curr_price = None
-                if _is_live:
-                    try:
-                        _lp = yf.Ticker(ticker).fast_info.last_price
-                        if _lp is not None and not pd.isna(_lp) and float(_lp) > 0:
-                            curr_price = float(_lp)
-                    except Exception:
-                        pass
-                # Fallback: use last daily close
+                # Always try fast_info first — returns last trade price
+                # (live during market hours, last close when market is shut)
+                try:
+                    _lp = yf.Ticker(ticker).fast_info.last_price
+                    if _lp is not None and not pd.isna(_lp) and float(_lp) > 0:
+                        curr_price = float(_lp)
+                except Exception:
+                    pass
+                # Fallback: last daily close from 5-day window (always available for .NS)
                 if curr_price is None:
                     try:
-                        _df = yf.Ticker(ticker).history(period="2d", interval="1d", auto_adjust=True)
+                        _df = yf.Ticker(ticker).history(period="5d", interval="1d", auto_adjust=True)
                         if not _df.empty:
-                            _lc = _df["Close"].iloc[-1]
+                            _lc = _df["Close"].dropna().iloc[-1]
                             if not pd.isna(_lc) and float(_lc) > 0:
                                 curr_price = float(_lc)
                     except Exception:
