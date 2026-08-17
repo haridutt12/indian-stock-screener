@@ -543,7 +543,9 @@ with tab_live:
                 curr_price = None
                 if _is_live:
                     try:
-                        curr_price = float(yf.Ticker(ticker).fast_info.last_price)
+                        _lp = yf.Ticker(ticker).fast_info.last_price
+                        if _lp is not None and not pd.isna(_lp) and float(_lp) > 0:
+                            curr_price = float(_lp)
                     except Exception:
                         pass
                 # Fallback: use last daily close
@@ -551,7 +553,9 @@ with tab_live:
                     try:
                         _df = yf.Ticker(ticker).history(period="2d", interval="1d", auto_adjust=True)
                         if not _df.empty:
-                            curr_price = float(_df["Close"].iloc[-1])
+                            _lc = _df["Close"].iloc[-1]
+                            if not pd.isna(_lc) and float(_lc) > 0:
+                                curr_price = float(_lc)
                     except Exception:
                         pass
 
@@ -899,7 +903,10 @@ with tab_live:
                         _pa_price  = float(_pal["alert_price"])
                         _pa_cond   = _pal["condition"]
                         try:
-                            _pa_curr = float(yf.Ticker(_pa_ticker).fast_info.last_price)
+                            _pa_lp = yf.Ticker(_pa_ticker).fast_info.last_price
+                            if _pa_lp is None or pd.isna(_pa_lp) or float(_pa_lp) <= 0:
+                                continue
+                            _pa_curr = float(_pa_lp)
                         except Exception:
                             continue
                         _triggered = (
