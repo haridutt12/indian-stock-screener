@@ -382,6 +382,169 @@ def _supertrend_signal(
     return None
 
 
+def _gap_and_go_signal(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_info: dict = None,
+) -> Optional[TradeSignal]:
+    """Gap and Go — price gaps >0.7% at open and continues through the opening range."""
+    if df is None or len(df) < 20:
+        return None
+
+    today = df.index[-1].date()
+    today_df   = df[df.index.date == today]
+    prev_df    = df[df.index.date < today]
+
+    if len(today_df) < OPENING_RANGE_CANDLES or len(prev_df) < 1:
+        return None
+
+    prev_close  = float(prev_df["Close"].iloc[-1])
+    today_open  = float(today_df["Open"].iloc[0])
+    gap_pct     = (today_open - prev_close) / prev_close * 100
+
+    MIN_GAP = 0.7
+    if abs(gap_pct) < MIN_GAP:
+        return None
+
+    or_range    = today_df.iloc[:OPENING_RANGE_CANDLES]
+    or_high     = float(or_range["High"].max())
+    or_low      = float(or_range["Low"].min())
+
+    latest     = df.iloc[-1]
+    close      = float(latest["Close"])
+    df_ind     = compute_indicators(df)
+    atr_col    = f"ATR_{ATR_PERIOD}"
+    atr        = float(df_ind[atr_col].iloc[-1]) if atr_col in df_ind.columns and not pd.isna(df_ind[atr_col].iloc[-1]) else None
+    if not atr:
+        return None
+
+    vol_mean   = df["Volume"].rolling(20).mean().iloc[-1]
+    vol_ratio  = float(latest["Volume"]) / float(vol_mean) if vol_mean and vol_mean > 0 else 1.0
+
+    direction = None
+    if gap_pct > MIN_GAP and close > or_high * 1.001 and close > today_open:
+        direction = "LONG"
+        stop_loss = round(or_low, 2)
+    elif gap_pct < -MIN_GAP and close < or_low * 0.999 and close < today_open:
+        direction = "SHORT"
+        stop_loss = round(or_high, 2)
+
+    if direction is None:
+        return None
+
+    entry = close
+    risk  = abs(entry - stop_loss)
+    if risk == 0 or risk / entry < MIN_INTRADAY_SL_PCT / 100:
+        return None
+    if direction == "LONG"  and stop_loss >= entry: return None
+    if direction == "SHORT" and stop_loss <= entry: return None
+
+    target_1 = round(entry + risk * MIN_RISK_REWARD if direction == "LONG" else entry - risk * MIN_RISK_REWARD, 2)
+    target_2 = round(entry + risk * 2.5             if direction == "LONG" else entry - risk * 2.5, 2)
+    rr       = round(abs(target_1 - entry) / risk, 2)
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    gap_dir = "up" if gap_pct > 0 else "down"
+    reasoning = (
+        f"Gap and Go {direction}: {gap_pct:+.2f}% gap {gap_dir} from ₹{prev_close:.2f}. "
+        f"Price continuing {'above OR high' if direction == 'LONG' else 'below OR low'} "
+        f"with {vol_ratio:.1f}x volume. SL at OR {'low' if direction == 'LONG' else 'high'} "
+        f"₹{stop_loss:.2f}. T1: ₹{target_1:.2f}."
+    )
+
+    return TradeSignal(
+        ticker=ticker, name=name, direction=direction,
+        entry_price=round(entry, 2), stop_loss=stop_loss,
+        target_1=target_1, target_2=target_2, risk_reward=rr,
+        confidence=4 if abs(gap_pct) >= 1.5 and vol_ratio >= 2.0 else 3,
+        strategy="Gap and Go", timeframe="INTRADAY",
+        technical_score=min(1.0, abs(gap_pct) / 2.0),
+        fundamental_score=0.5, sentiment_score=0.5,
+        reasoning=reasoning, patterns=["Gap"],
+        current_price=close, sector=sector,
+    )
+
+
+def _vwap_reclaim_signal(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_info: dict = None,
+) -> Optional[TradeSignal]:
+    """VWAP Reclaim — stock was below VWAP for 3+ candles then reclaims it with volume."""
+    if df is None or len(df) < 25:
+        return None
+
+    df_ind  = compute_indicators(df)
+    rsi_col = f"RSI_{RSI_PERIOD}"
+    atr_col = f"ATR_{ATR_PERIOD}"
+    if rsi_col not in df_ind.columns:
+        return None
+
+    today     = df_ind.index[-1].date()
+    today_mask = df_ind.index.map(lambda x: x.date()) == today
+    today_df  = df_ind[today_mask]
+    if len(today_df) < 5:
+        return None
+
+    vol_sum = today_df["Volume"].cumsum()
+    if vol_sum.iloc[-1] == 0:
+        return None
+    daily_vwap = float(
+        (today_df["Close"] * today_df["Volume"]).cumsum().iloc[-1] / vol_sum.iloc[-1]
+    )
+
+    latest = df_ind.iloc[-1]
+    close  = float(latest["Close"])
+    rsi    = float(latest[rsi_col]) if not pd.isna(latest[rsi_col]) else None
+    atr    = float(latest[atr_col]) if atr_col in df_ind.columns and not pd.isna(latest[atr_col]) else None
+
+    if not rsi or not atr:
+        return None
+    if close <= daily_vwap or rsi < 45:
+        return None
+
+    # 3 prior candles (today) must all have been below VWAP
+    prior = today_df["Close"].iloc[-4:-1]
+    if len(prior) < 3 or not all(float(c) < daily_vwap for c in prior):
+        return None
+
+    vol_mean  = df_ind["Volume"].rolling(20).mean().iloc[-1]
+    vol_ratio = float(latest["Volume"]) / float(vol_mean) if vol_mean and vol_mean > 0 else 1.0
+    if vol_ratio < 1.3:
+        return None
+
+    entry     = close
+    stop_loss = round(daily_vwap - atr * 0.3, 2)
+    risk      = abs(entry - stop_loss)
+    if risk == 0 or stop_loss >= entry or risk / entry < MIN_INTRADAY_SL_PCT / 100:
+        return None
+
+    target_1 = round(entry + risk * MIN_RISK_REWARD, 2)
+    target_2 = round(entry + risk * 2.5, 2)
+    rr       = round(abs(target_1 - entry) / risk, 2)
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    reasoning = (
+        f"VWAP Reclaim LONG: Was below VWAP ({daily_vwap:.2f}) for 3+ candles, "
+        f"now reclaimed with {vol_ratio:.1f}x volume and RSI {rsi:.0f}. "
+        f"SL just below VWAP at ₹{stop_loss:.2f}. T1: ₹{target_1:.2f}."
+    )
+
+    return TradeSignal(
+        ticker=ticker, name=name, direction="LONG",
+        entry_price=round(entry, 2), stop_loss=stop_loss,
+        target_1=target_1, target_2=target_2, risk_reward=rr,
+        confidence=4 if vol_ratio >= 2.0 and rsi >= 55 else 3,
+        strategy="VWAP Reclaim", timeframe="INTRADAY",
+        technical_score=min(1.0, vol_ratio / 3.0),
+        fundamental_score=0.5, sentiment_score=0.5,
+        reasoning=reasoning, patterns=["VWAP Reclaim"],
+        current_price=close, sector=sector,
+    )
+
+
 def generate_intraday_signals(
     tickers: list[str],
     fund_map: dict = None,
@@ -406,7 +569,7 @@ def generate_intraday_signals(
         df = price_data.get(ticker)
         fund_info = (fund_map or {}).get(ticker, {})
 
-        for strategy_fn in [_orb_signal, _vwap_bounce_signal, _ema_crossover_signal, _supertrend_signal]:
+        for strategy_fn in [_gap_and_go_signal, _orb_signal, _supertrend_signal, _ema_crossover_signal, _vwap_reclaim_signal, _vwap_bounce_signal]:
             try:
                 signal = strategy_fn(ticker, df, fund_info)
                 if signal:

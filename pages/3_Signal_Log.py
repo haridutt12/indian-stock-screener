@@ -70,10 +70,18 @@ _STRATEGY_TYPE = {
     "VWAP Bounce":            "MEAN_REVERT",
     "EMA Crossover":          "MOMENTUM",
     "Supertrend Signal":      "TREND",
+    # New swing LONG
+    "52W High Breakout":      "MOMENTUM",
+    "BB Squeeze Breakout":    "BREAKOUT",
+    "EMA Stack Pullback":     "TREND",
     # SHORT strategies
     "Death Cross":            "MOMENTUM",
     "Overbought Reversal":    "REVERSAL",
     "Trend Breakdown":        "BREAKOUT",
+    "52W Low Breakdown":      "MOMENTUM",
+    # New intraday
+    "Gap and Go":             "BREAKOUT",
+    "VWAP Reclaim":           "MEAN_REVERT",
 }
 
 

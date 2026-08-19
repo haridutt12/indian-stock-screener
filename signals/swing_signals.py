@@ -13,7 +13,7 @@ from analysis.technical import compute_indicators, get_technical_summary
 from analysis.fundamental import build_fundamental_df, score_fundamentals
 from signals.signal_models import TradeSignal
 from config.settings import (
-    SMA_MID, SMA_LONG, RSI_PERIOD, ATR_PERIOD, EMA_SLOW,
+    SMA_MID, SMA_LONG, RSI_PERIOD, ATR_PERIOD, EMA_FAST, EMA_SLOW,
     MIN_RISK_REWARD, MAX_SWING_SIGNALS, VOLUME_SPIKE_MULTIPLIER,
 )
 
@@ -129,6 +129,50 @@ def _compute_swing_signals(
             and "bear" in recent_dirs.iloc[:-1].values
         ):
             matched_strategies.append("Supertrend Reversal")
+
+    # Strategy 7: 52-Week High Breakout
+    # Strong momentum anomaly: stocks breaking to new highs keep going (documented in NSE literature)
+    if (
+        sma200 is not None and close > sma200
+        and rsi is not None and 55 <= rsi <= 78
+        and volume_ratio >= VOLUME_SPIKE_MULTIPLIER
+        and len(df) >= 200
+    ):
+        high_52w = float(df["Close"].rolling(252).max().iloc[-1])
+        if high_52w > 0 and close >= high_52w * 0.988:
+            matched_strategies.append("52W High Breakout")
+
+    # Strategy 8: Bollinger Band Squeeze Breakout
+    # Volatility contraction followed by expansion — reliable on daily timeframe
+    if (
+        "BB_bandwidth" in df_ind.columns
+        and "BB_mid" in df_ind.columns
+        and macd_bullish is True
+        and rsi is not None and 45 <= rsi <= 72
+        and len(df_ind) >= 25
+    ):
+        bw_series = df_ind["BB_bandwidth"].dropna()
+        if len(bw_series) >= 20:
+            bw_min_20 = float(bw_series.iloc[-20:-1].min())
+            bw_now    = _f(latest.get("BB_bandwidth"))
+            bb_mid    = _f(latest.get("BB_mid"))
+            if bw_now is not None and bb_mid is not None and bw_min_20 > 0:
+                in_squeeze = bw_now <= bw_min_20 * 1.1
+                expanding  = bw_now > float(bw_series.iloc[-2]) if len(bw_series) >= 2 else False
+                if in_squeeze and expanding and close > bb_mid:
+                    matched_strategies.append("BB Squeeze Breakout")
+
+    # Strategy 9: EMA Stack Pullback (Bull Flag)
+    # All EMAs aligned bull stack; price pulls back to EMA21 — ideal re-entry in trend
+    if (
+        sma50 is not None and ema21 is not None
+        and rsi is not None and 38 <= rsi <= 62
+    ):
+        ema9 = _f(latest.get(f"EMA_{EMA_FAST}"))
+        if ema9 is not None and ema9 > ema21 > sma50 and close > sma200 if sma200 else True:
+            pullback_to_ema21 = abs(close - ema21) / close < 0.022
+            if pullback_to_ema21:
+                matched_strategies.append("EMA Stack Pullback")
 
     if not matched_strategies:
         return []
@@ -270,6 +314,18 @@ def _compute_swing_short_signals(
         and rsi is not None and rsi < 50
     ):
         short_strategies.append("Trend Breakdown")
+
+    # Strategy S4: 52-Week Low Breakdown
+    # Momentum reversal: stocks making new 52W lows under sustained selling pressure continue lower
+    if (
+        sma200 is not None and close < sma200
+        and rsi is not None and 22 <= rsi <= 48
+        and volume_ratio >= VOLUME_SPIKE_MULTIPLIER
+        and len(df) >= 200
+    ):
+        low_52w = float(df["Close"].rolling(252).min().iloc[-1])
+        if low_52w > 0 and close <= low_52w * 1.012:
+            short_strategies.append("52W Low Breakdown")
 
     if not short_strategies:
         return []
