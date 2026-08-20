@@ -545,6 +545,118 @@ def _vwap_reclaim_signal(
     )
 
 
+def _camarilla_pivot_signal(
+    ticker: str,
+    df: pd.DataFrame,
+    fund_info: dict = None,
+) -> Optional[TradeSignal]:
+    """Camarilla Pivot S3/R3 — institutional S/R level bounce with volume confirmation."""
+    if df is None or len(df) < 20:
+        return None
+
+    today    = df.index[-1].date()
+    today_df = df[df.index.date == today]
+    prev_df  = df[df.index.date < today]
+
+    if len(today_df) < OPENING_RANGE_CANDLES or len(prev_df) < 1:
+        return None
+
+    prev_high  = float(prev_df["High"].max())
+    prev_low   = float(prev_df["Low"].min())
+    prev_close = float(prev_df["Close"].iloc[-1])
+    pivot_range = prev_high - prev_low
+
+    if pivot_range <= 0:
+        return None
+
+    s3 = round(prev_close - pivot_range * 1.1 / 4, 2)
+    r3 = round(prev_close + pivot_range * 1.1 / 4, 2)
+    s4 = round(prev_close - pivot_range * 1.1 / 2, 2)
+    r4 = round(prev_close + pivot_range * 1.1 / 2, 2)
+
+    latest   = df.iloc[-1]
+    prev_bar = df.iloc[-2]
+    close    = float(latest["Close"])
+
+    df_ind  = compute_indicators(df)
+    atr_col = f"ATR_{ATR_PERIOD}"
+    rsi_col = f"RSI_{RSI_PERIOD}"
+    atr = float(df_ind[atr_col].iloc[-1]) if atr_col in df_ind.columns and not pd.isna(df_ind[atr_col].iloc[-1]) else None
+    rsi = float(df_ind[rsi_col].iloc[-1]) if rsi_col in df_ind.columns and not pd.isna(df_ind[rsi_col].iloc[-1]) else None
+
+    if not atr or not rsi:
+        return None
+
+    vol_mean  = df["Volume"].rolling(20).mean().iloc[-1]
+    vol_ratio = float(latest["Volume"]) / float(vol_mean) if vol_mean and vol_mean > 0 else 1.0
+
+    direction = None
+    stop_loss = None
+    level_name = ""
+    level_val  = 0.0
+
+    # S3 Bounce: prev bar touched S3, current bar bouncing above it
+    if (
+        float(prev_bar["Low"]) <= s3 * 1.003
+        and close > s3
+        and close > float(prev_bar["Close"])
+        and rsi < 48
+        and vol_ratio >= 1.2
+    ):
+        direction  = "LONG"
+        stop_loss  = round(s4 - atr * 0.15, 2)
+        level_name = "S3"
+        level_val  = s3
+
+    # R3 Rejection: prev bar touched R3, current bar dropping below it
+    elif (
+        float(prev_bar["High"]) >= r3 * 0.997
+        and close < r3
+        and close < float(prev_bar["Close"])
+        and rsi > 52
+        and vol_ratio >= 1.2
+    ):
+        direction  = "SHORT"
+        stop_loss  = round(r4 + atr * 0.15, 2)
+        level_name = "R3"
+        level_val  = r3
+
+    if direction is None or stop_loss is None:
+        return None
+
+    entry = close
+    risk  = abs(entry - stop_loss)
+    if risk == 0 or risk / entry < MIN_INTRADAY_SL_PCT / 100:
+        return None
+    if direction == "LONG"  and stop_loss >= entry: return None
+    if direction == "SHORT" and stop_loss <= entry: return None
+
+    target_1 = round(entry + risk * MIN_RISK_REWARD if direction == "LONG" else entry - risk * MIN_RISK_REWARD, 2)
+    target_2 = round(entry + risk * 2.5             if direction == "LONG" else entry - risk * 2.5, 2)
+    rr       = round(abs(target_1 - entry) / risk, 2)
+
+    name   = fund_info.get("longName", ticker) if fund_info else ticker
+    sector = fund_info.get("sector", "Unknown") if fund_info else "Unknown"
+    action = "Bounce" if direction == "LONG" else "Rejection"
+    reasoning = (
+        f"Camarilla {level_name} {action} {direction}: Price {'touched' if direction == 'LONG' else 'rejected at'} "
+        f"{level_name} ({level_val:.2f}) with {vol_ratio:.1f}× volume and RSI {rsi:.0f}. "
+        f"SL at {'S4' if direction == 'LONG' else 'R4'} buffer ₹{stop_loss:.2f}. T1: ₹{target_1:.2f}."
+    )
+
+    return TradeSignal(
+        ticker=ticker, name=name, direction=direction,
+        entry_price=round(entry, 2), stop_loss=stop_loss,
+        target_1=target_1, target_2=target_2, risk_reward=rr,
+        confidence=4 if vol_ratio >= 2.0 else 3,
+        strategy="Camarilla Pivot", timeframe="INTRADAY",
+        technical_score=min(1.0, vol_ratio / 3.0),
+        fundamental_score=0.5, sentiment_score=0.5,
+        reasoning=reasoning, patterns=["Camarilla"],
+        current_price=close, sector=sector,
+    )
+
+
 def generate_intraday_signals(
     tickers: list[str],
     fund_map: dict = None,
@@ -569,7 +681,7 @@ def generate_intraday_signals(
         df = price_data.get(ticker)
         fund_info = (fund_map or {}).get(ticker, {})
 
-        for strategy_fn in [_gap_and_go_signal, _orb_signal, _supertrend_signal, _ema_crossover_signal, _vwap_reclaim_signal, _vwap_bounce_signal]:
+        for strategy_fn in [_gap_and_go_signal, _camarilla_pivot_signal, _orb_signal, _supertrend_signal, _ema_crossover_signal, _vwap_reclaim_signal, _vwap_bounce_signal]:
             try:
                 signal = strategy_fn(ticker, df, fund_info)
                 if signal:

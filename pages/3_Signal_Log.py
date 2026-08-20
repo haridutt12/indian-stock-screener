@@ -82,6 +82,9 @@ _STRATEGY_TYPE = {
     # New intraday
     "Gap and Go":             "BREAKOUT",
     "VWAP Reclaim":           "MEAN_REVERT",
+    # New swing REVERSAL / intraday pivot
+    "RSI Divergence":         "REVERSAL",
+    "Camarilla Pivot":        "MEAN_REVERT",
 }
 
 
@@ -1621,3 +1624,82 @@ with tab_insights:
                 + f'</div>',
                 unsafe_allow_html=True,
             )
+
+    # ── Strategy Equity Curves ──────────────────────────────────────────────
+    st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+        'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Strategy Equity Curves</div>',
+        unsafe_allow_html=True,
+    )
+
+    _all_sigs_eq = log.get_signals(timeframe=timeframe, days_back=days_back)
+    _eq_closed = [
+        s for s in _all_sigs_eq
+        if s["outcome"] not in (OUTCOME_OPEN, OUTCOME_EXPIRED)
+        and s.get("outcome_at")
+        and s.get("net_pnl_inr") is not None
+    ]
+
+    if len(_eq_closed) < 3:
+        st.markdown(
+            '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
+            'border-radius:12px;padding:24px;text-align:center;color:#475569;font-size:0.85rem;">'
+            'Not enough closed trades yet to draw equity curves.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        _eq_by_strat: dict = {}
+        for s in sorted(_eq_closed, key=lambda x: x["outcome_at"]):
+            _eq_by_strat.setdefault(s["strategy"], []).append(float(s["net_pnl_inr"] or 0))
+
+        _PALETTE = [
+            "#00c896", "#3b82f6", "#f0b429", "#a78bfa",
+            "#fb923c", "#f472b6", "#34d399", "#60a5fa",
+        ]
+
+        fig_eq = go.Figure()
+        for i, (strat, pnls) in enumerate(_eq_by_strat.items()):
+            if len(pnls) < 2:
+                continue
+            cumsum = []
+            _acc = 0.0
+            for p in pnls:
+                _acc += p
+                cumsum.append(round(_acc))
+            col = _PALETTE[i % len(_PALETTE)]
+            fig_eq.add_trace(go.Scatter(
+                x=list(range(1, len(cumsum) + 1)),
+                y=cumsum,
+                mode="lines+markers",
+                name=strat,
+                line=dict(color=col, width=2),
+                marker=dict(size=4, color=col),
+                hovertemplate=f"<b>{strat}</b><br>Trade #%{{x}}<br>Cumulative: ₹%{{y:,.0f}}<extra></extra>",
+            ))
+
+        fig_eq.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.15)", line_width=1)
+        fig_eq.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter, sans-serif", color="#94a3b8", size=11),
+            margin=dict(l=0, r=0, t=10, b=40),
+            height=320,
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.18,
+                bgcolor="rgba(0,0,0,0)", font=dict(size=10),
+            ),
+            xaxis=dict(
+                title="Trade #",
+                gridcolor="rgba(255,255,255,0.04)", zeroline=False,
+                showline=False, tickfont=dict(size=10),
+            ),
+            yaxis=dict(
+                title="Cumulative P&L",
+                gridcolor="rgba(255,255,255,0.06)", zeroline=False,
+                showline=False, tickprefix="₹", tickfont=dict(size=10),
+            ),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_eq, use_container_width=True)
