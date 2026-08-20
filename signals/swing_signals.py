@@ -7,6 +7,7 @@ import numpy as np
 import logging
 from typing import Optional
 from collections import defaultdict
+import yfinance as yf
 
 from data.fetcher import fetch_stock_data, fetch_bulk_fundamentals
 from analysis.technical import compute_indicators, get_technical_summary
@@ -88,19 +89,21 @@ def _compute_swing_signals(
         matched_strategies.append("Volume Breakout")
 
     # Strategy 3: Oversold Reversal
-    # RSI deeply oversold — relaxed fundamental requirement
+    # RSI deeply oversold IN AN UPTREND — long-term trend filter prevents catching falling knives
     if (
         rsi is not None and rsi < 40
+        and sma200 is not None and close > sma200
         and fund_scores.get("composite_score", 0.5) > 0.35
     ):
         matched_strategies.append("Oversold Reversal")
 
-    # Strategy 4: Bullish Setup (broader catch-all)
-    # Above SMA200 + MACD bullish + RSI not overbought
+    # Strategy 4: Bullish Setup — above SMA200 with MACD momentum AND volume/RSI confirmation
+    # Tightened: RSI must be in momentum zone (45-70) + volume or RSI confirmation
     if (
         sma200 is not None and close > sma200
         and macd_bullish is True
-        and rsi is not None and rsi < 70
+        and rsi is not None and 45 <= rsi < 70
+        and (volume_ratio >= 1.3 or rsi >= 58)
     ):
         matched_strategies.append("Bullish Setup")
 
@@ -173,6 +176,29 @@ def _compute_swing_signals(
             pullback_to_ema21 = abs(close - ema21) / close < 0.022
             if pullback_to_ema21:
                 matched_strategies.append("EMA Stack Pullback")
+
+    # Strategy 10: RSI Bullish Divergence
+    # Price makes lower low; RSI makes higher low — strongest mean-reversion setup
+    if (
+        rsi is not None and 20 <= rsi <= 50
+        and sma200 is not None and close > sma200
+        and f"RSI_{RSI_PERIOD}" in df_ind.columns
+        and len(df_ind) >= 35
+    ):
+        _rsi_s   = df_ind[f"RSI_{RSI_PERIOD}"].dropna()
+        _price_s = df_ind["Close"].dropna()
+        if len(_rsi_s) >= 30 and len(_price_s) >= 30:
+            _price_a = _price_s.iloc[-28:-12]
+            _price_b = _price_s.iloc[-12:-1]
+            _rsi_a   = _rsi_s.iloc[-28:-12]
+            _rsi_b   = _rsi_s.iloc[-12:-1]
+            if len(_price_a) >= 5 and len(_price_b) >= 5:
+                _plow_a    = float(_price_a.min())
+                _plow_b    = float(_price_b.min())
+                _rsi_at_a  = float(_rsi_a.iloc[int(np.argmin(_price_a.values))])
+                _rsi_at_b  = float(_rsi_b.iloc[int(np.argmin(_price_b.values))])
+                if _plow_b < _plow_a * 0.998 and _rsi_at_b > _rsi_at_a + 4:
+                    matched_strategies.append("RSI Divergence")
 
     if not matched_strategies:
         return []
@@ -394,6 +420,18 @@ def generate_swing_signals(
         use_cache: Whether to use cached price/fundamental data
         on_tick: Optional callback(ticker, strategies, done, total) called after each ticker
     """
+    # Market regime gate — check Nifty 50 trend to suppress low-confidence LONG signals in bear market
+    _regime_bearish = False
+    try:
+        _nsei = yf.Ticker("^NSEI").history(period="60d", interval="1d", auto_adjust=True)
+        if _nsei is not None and len(_nsei) >= 50:
+            _nc  = float(_nsei["Close"].iloc[-1])
+            _n20 = float(_nsei["Close"].rolling(20).mean().iloc[-1])
+            _n50 = float(_nsei["Close"].rolling(50).mean().iloc[-1])
+            _regime_bearish = _nc < _n50 and _nc < _n20
+    except Exception:
+        pass
+
     price_data = fetch_stock_data(tickers, use_cache=use_cache)
 
     fund_df = fetch_bulk_fundamentals(tickers)
@@ -436,6 +474,17 @@ def generate_swing_signals(
             logger.warning(f"Error generating swing signal for {ticker}: {e}")
             if on_tick:
                 on_tick(ticker, [], i + 1, total)
+
+    # Market regime gate: in bearish regime, drop LONG signals with confidence < 3
+    if _regime_bearish:
+        _before = len(all_signals)
+        all_signals = [
+            s for s in all_signals
+            if s.direction == "SHORT" or s.confidence >= 3
+        ]
+        _dropped = _before - len(all_signals)
+        if _dropped:
+            logger.info("Regime gate (bearish): dropped %d low-confidence LONG signal(s).", _dropped)
 
     # Diversity-first selection: round-robin across strategies so all represented strategies appear
     by_strategy: dict[str, list[TradeSignal]] = defaultdict(list)
