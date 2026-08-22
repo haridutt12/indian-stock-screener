@@ -66,6 +66,14 @@ def simulate_signal(
     bars_held = 0
 
     for i, (dt, row) in enumerate(df.iterrows()):
+        # Skip the signal date itself — the signal was generated at/after close,
+        # so the earliest tradeable bar is the next session.
+        if hasattr(dt, "date"):
+            bar_date = dt.date()
+        else:
+            bar_date = dt
+        if bar_date <= start_dt:
+            continue
         bars_held += 1
         high = float(row["High"])
         low  = float(row["Low"])

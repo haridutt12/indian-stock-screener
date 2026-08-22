@@ -12,7 +12,7 @@ import pytz as _pytz
 from data.fetcher import fetch_bulk_fundamentals, fetch_stock_data, fetch_single_stock
 from data.market_status import market_status, is_market_open
 from signals.intraday_signals import generate_intraday_signals
-from ui.components import signal_card
+from ui.components import signal_card, research_disclaimer
 from ui.styles import page_header, show_loading, auth_guard, user_sidebar
 from ui.charts import candlestick_chart
 from analysis.technical import compute_indicators
@@ -32,6 +32,7 @@ auth_guard()
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────────────────────
 page_header("⚡ Intraday Trade Ideas", subtitle="NSE · Equity · Intraday",
             badge="LIVE", badge_color="#00c896")
+research_disclaimer()
 
 status = market_status()
 

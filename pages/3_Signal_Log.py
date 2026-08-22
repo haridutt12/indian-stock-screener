@@ -27,6 +27,7 @@ except Exception as _exc:
 
 st.set_page_config(page_title="Signal Log · NiftyEdge", layout="wide", page_icon="📋")
 from ui.styles import inject_global_css, page_header, show_loading, auth_guard, user_sidebar; inject_global_css()
+from ui.components import research_disclaimer
 auth_guard()
 
 # ── Module-level helpers ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -278,6 +279,7 @@ _pulse    = "animation:pulse 1.4s ease-in-out infinite;" if _mkt_live else ""
 hcol1, hcol2 = st.columns([3, 1])
 with hcol1:
     page_header("📋 Signal Log", subtitle="NSE · Trade Journal · Forward Test")
+research_disclaimer()
 with hcol2:
     st.markdown("<div style='height:38px'></div>", unsafe_allow_html=True)
     _run_scan = st.button("▶ Run Scan Now", type="primary", use_container_width=True)

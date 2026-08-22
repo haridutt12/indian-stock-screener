@@ -14,43 +14,39 @@ with st.sidebar:
 # ── PAGE HEADER ─────────────────────────────────────────────────────────────────────────────
 page_header("📰 News & Market Sentiment", subtitle="AI · Market Intelligence · Daily")
 
-# ── FETCH ────────────────────────────────────────────────────────────────────────────────
-fetch_banner = st.empty()
-fetch_banner.markdown(
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_news_and_sentiment():
+    """Cache news + LLM sentiment call for 30 min — prevents a Claude API call on every page visit."""
+    items = fetch_market_news()
+    if not items:
+        return [], {}
+    try:
+        text = format_news_for_claude(items, max_items=30)
+        sent = analyze_market_sentiment(text, news_items=items)
+    except Exception:
+        sent = {}
+    return items, sent
+
+
+# ── FETCH + ANALYSE (cached) ──────────────────────────────────────────────────
+_loading = st.empty()
+_loading.markdown(
     '<div style="background:rgba(124,131,253,0.06);border:1px solid rgba(124,131,253,0.2);'
     'border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:12px;margin-bottom:16px;">'
     '<div style="width:8px;height:8px;border-radius:50%;background:#7c83fd;'
     'animation:pulse 1.2s ease-in-out infinite;flex-shrink:0;"></div>'
-    '<div style="color:#7c83fd;font-weight:700;font-size:0.85rem;">Fetching latest market news…</div>'
+    '<div style="color:#7c83fd;font-weight:700;font-size:0.85rem;">'
+    f'Fetching news &amp; analysing with {get_engine_name()}…</div>'
     '</div>',
     unsafe_allow_html=True,
 )
-news_items = fetch_market_news()
-fetch_banner.empty()
+news_items, sentiment = _fetch_news_and_sentiment()
+_loading.empty()
 
 if not news_items:
     st.error("Could not fetch news. Check your internet connection.")
     st.stop()
-
-# ── ANALYSE ────────────────────────────────────────────────────────────────────────────────
-engine = get_engine_name()
-analyse_banner = st.empty()
-analyse_banner.markdown(
-    f'<div style="background:rgba(124,131,253,0.06);border:1px solid rgba(124,131,253,0.2);'
-    f'border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:12px;margin-bottom:16px;">'
-    f'<div style="width:8px;height:8px;border-radius:50%;background:#7c83fd;'
-    f'animation:pulse 1.2s ease-in-out infinite;flex-shrink:0;"></div>'
-    f'<div style="color:#7c83fd;font-weight:700;font-size:0.85rem;">'
-    f'Analysing sentiment with {engine}…</div>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
-try:
-    news_text = format_news_for_claude(news_items, max_items=30)
-    sentiment = analyze_market_sentiment(news_text, news_items=news_items)
-except Exception:
-    sentiment = {}
-analyse_banner.empty()
 
 # Persist today's score for the 30-day trend chart (non-blocking)
 try:

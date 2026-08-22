@@ -88,7 +88,9 @@ def format_swing_signal(signal) -> str:
         f"T1:     ₹{t1:,.2f}  (+{t1_pct:.1f}%)\n"
         f"T2:     ₹{t2:,.2f}  (+{t2_pct:.1f}%)\n"
         f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
-        f"🕐 {now}"
+        f"🕐 {now}\n\n"
+        f"<i>For research purposes only. Not investment advice. "
+        f"Verify independently before trading. Past signals are not a guarantee of future results.</i>"
     )
 
 
@@ -118,7 +120,9 @@ def format_intraday_signal(signal) -> str:
         f"T2:     ₹{t2:,.2f}  (+{t2_pct:.1f}%)\n"
         f"R:R:    1:{s.get('risk_reward', 0):.1f}\n\n"
         f"⚠️ Square off by <b>3:30 PM IST</b>\n"
-        f"🕐 {now}"
+        f"🕐 {now}\n\n"
+        f"<i>For research purposes only. Not investment advice. "
+        f"Verify independently before trading.</i>"
     )
 
 

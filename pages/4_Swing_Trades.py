@@ -9,7 +9,7 @@ from data.news_fetcher import fetch_market_news, format_news_for_claude
 from analysis.technical import compute_indicators
 from analysis.sentiment import analyze_market_sentiment
 from signals.swing_signals import generate_swing_signals
-from ui.components import signal_card
+from ui.components import signal_card, research_disclaimer
 from ui.styles import page_header, show_loading, auth_guard, user_sidebar
 from ui.charts import candlestick_chart, rsi_macd_chart
 from config.stock_universe import NIFTY_50, NIFTY_200
@@ -33,6 +33,7 @@ auth_guard()
 
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────────────────────
 page_header("💹 Swing Trade Ideas", subtitle="NSE · Equity · 2–5 Day Hold")
+research_disclaimer()
 
 # ── SIDEBAR ────────────────────────────────────────────────────────────────────────────────────
 with st.sidebar:

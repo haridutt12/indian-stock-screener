@@ -1,0 +1,140 @@
+name: NiftyEdge Scheduler
+
+# Replaces APScheduler-inside-Streamlit with reliable GitHub Actions cron.
+# All times UTC. IST = UTC + 5:30.
+#
+# Job schedule (IST)         Cron (UTC)
+# ─────────────────────────────────────
+# 8:30 AM  Price warm-up     3:00 UTC
+# 8:45 AM  Pre-market scan   3:15 UTC
+# 9:30 AM  Intraday signals  4:00 UTC
+# 10:00 AM Daily Top 3       4:30 UTC
+# 12:00 PM Mid-day update    6:30 UTC
+# 3:35 PM  Closing update   10:05 UTC
+# 4:00 PM  Post-market scan 10:30 UTC
+# 4:30 PM  Outcome tracker  11:00 UTC
+
+on:
+  schedule:
+    - cron: '0 3 * * 1-5'    # price_warmup
+    - cron: '15 3 * * 1-5'   # pre_market_scan
+    - cron: '0 4 * * 1-5'    # intraday_signal_scan
+    - cron: '30 4 * * 1-5'   # daily_top3
+    - cron: '30 6 * * 1-5'   # midday_update
+    - cron: '5 10 * * 1-5'   # closing_update
+    - cron: '30 10 * * 1-5'  # post_market_scan
+    - cron: '0 11 * * 1-5'   # outcome_tracker
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Job to run manually'
+        required: true
+        type: choice
+        options:
+          - price_warmup
+          - pre_market_scan
+          - intraday_signal_scan
+          - daily_top3
+          - midday_update
+          - closing_update
+          - post_market_scan
+          - outcome_tracker
+          - intraday_refresh
+
+env:
+  DATABASE_URL:       ${{ secrets.DATABASE_URL }}
+  ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+  GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+
+jobs:
+  price_warmup:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'price_warmup' || github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job price_warmup
+
+  pre_market_scan:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'pre_market_scan' || github.event_name == 'schedule' && github.event.schedule == '15 3 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job pre_market_scan
+
+  intraday_signal_scan:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'intraday_signal_scan' || github.event_name == 'schedule' && github.event.schedule == '0 4 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job intraday_signal_scan
+
+  daily_top3:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'daily_top3' || github.event_name == 'schedule' && github.event.schedule == '30 4 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job daily_top3
+
+  midday_update:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'midday_update' || github.event_name == 'schedule' && github.event.schedule == '30 6 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job midday_update
+
+  closing_update:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'closing_update' || github.event_name == 'schedule' && github.event.schedule == '5 10 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job closing_update
+
+  post_market_scan:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'post_market_scan' || github.event_name == 'schedule' && github.event.schedule == '30 10 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job post_market_scan
+
+  outcome_tracker:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'outcome_tracker' || github.event_name == 'schedule' && github.event.schedule == '0 11 * * 1-5'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job outcome_tracker
+
+  manual_dispatch:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job != '' && github.event.inputs.job != 'price_warmup' && github.event.inputs.job != 'pre_market_scan' && github.event.inputs.job != 'intraday_signal_scan' && github.event.inputs.job != 'daily_top3' && github.event.inputs.job != 'midday_update' && github.event.inputs.job != 'closing_update' && github.event.inputs.job != 'post_market_scan' && github.event.inputs.job != 'outcome_tracker'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt -q
+      - run: python -m scripts.run_job ${{ github.event.inputs.job }}

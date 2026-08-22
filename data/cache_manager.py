@@ -1,14 +1,40 @@
 """
 SQLite-backed TTL cache for stock data.
 Survives Streamlit reruns and process restarts.
+
+Serialisation: JSON with typed envelope — no pickle, no RCE risk.
+DataFrames are stored as {"__type__": "dataframe", "data": <split JSON>}.
+All other values use {"__type__": "value", "data": <json-serialisable>}.
+Existing pickle blobs in the DB are transparently evicted on read.
 """
 import sqlite3
 import json
 import time
-import pickle
 import os
 from typing import Any, Optional
 from config.settings import CACHE_DB_PATH
+
+
+def _encode(value: Any) -> bytes:
+    try:
+        import pandas as pd
+        if isinstance(value, pd.DataFrame):
+            return json.dumps({"__type__": "dataframe", "data": value.to_json(orient="split")}).encode()
+    except ImportError:
+        pass
+    return json.dumps({"__type__": "value", "data": value}).encode()
+
+
+def _decode(raw: bytes) -> Any:
+    try:
+        envelope = json.loads(raw)
+    except Exception:
+        # Unreadable (old pickle blob) — treat as miss so the key is evicted
+        raise ValueError("undecodable")
+    if envelope.get("__type__") == "dataframe":
+        import pandas as pd
+        return pd.read_json(envelope["data"], orient="split")
+    return envelope["data"]
 
 
 class CacheManager:
@@ -41,21 +67,29 @@ class CacheManager:
             ).fetchone()
         if row is None:
             return None
-        value_blob, expires_at = row
+        raw, expires_at = row
         if time.time() > expires_at:
             self.delete(key)
             return None
-        return pickle.loads(value_blob)
+        try:
+            return _decode(raw)
+        except Exception:
+            # Corrupt or old pickle blob — evict and return miss
+            self.delete(key)
+            return None
 
     def set(self, key: str, value: Any, ttl: int):
-        value_blob = pickle.dumps(value)
+        try:
+            encoded = _encode(value)
+        except (TypeError, ValueError):
+            return  # skip un-serialisable values rather than crash
         now = time.time()
         expires_at = now + ttl
         with self._connect() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO cache (key, value, expires_at, created_at)
                    VALUES (?, ?, ?, ?)""",
-                (key, value_blob, expires_at, now),
+                (key, encoded, expires_at, now),
             )
 
     def delete(self, key: str):
