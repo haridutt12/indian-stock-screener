@@ -85,6 +85,9 @@ _STRATEGY_TYPE = {
     # New swing REVERSAL / intraday pivot
     "RSI Divergence":         "REVERSAL",
     "Camarilla Pivot":        "MEAN_REVERT",
+    # New swing MOMENTUM
+    "MACD Histogram Momentum": "MOMENTUM",
+    "Volume Momentum":         "BREAKOUT",
 }
 
 

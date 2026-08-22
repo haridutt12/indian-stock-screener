@@ -200,6 +200,39 @@ def _compute_swing_signals(
                 if _plow_b < _plow_a * 0.998 and _rsi_at_b > _rsi_at_a + 4:
                     matched_strategies.append("RSI Divergence")
 
+    # Strategy 11: MACD Histogram Momentum
+    # Histogram turning positive for ≥3 bars from negative territory + price above SMA50
+    # Captures early trend resumption without waiting for full crossover
+    if (
+        sma50 is not None and close > sma50
+        and f"MACDh_{MACD_FAST}_{MACD_SLOW}_{MACD_SIG}" in df_ind.columns
+        and len(df_ind) >= 15
+    ):
+        _hist = df_ind[f"MACDh_{MACD_FAST}_{MACD_SLOW}_{MACD_SIG}"].dropna()
+        if len(_hist) >= 8:
+            _h_recent = _hist.iloc[-5:].tolist()
+            _h_before = _hist.iloc[-10:-5].tolist()
+            _neg_before = sum(1 for h in _h_before if h < 0) >= 3
+            _pos_turn   = all(h > 0 for h in _h_recent[-3:])
+            _hist_acc   = _h_recent[-1] > _h_recent[-2] > _h_recent[-3]
+            if _neg_before and _pos_turn and _hist_acc and volume_ratio >= 1.1:
+                matched_strategies.append("MACD Histogram Momentum")
+
+    # Strategy 12: Volume-Weighted Momentum (RVOL surge + price trend)
+    # Abnormal volume (≥2.5×) with price ≥3% above 5-day low and above EMA21
+    # Institutional accumulation signature
+    if (
+        ema21 is not None and close > ema21
+        and volume_ratio >= 2.5
+        and rsi is not None and 45 <= rsi <= 80
+        and sma50 is not None and close > sma50
+        and len(df_ind) >= 10
+    ):
+        _lows5 = df_ind["Close"].tail(5).min() if len(df_ind) >= 5 else close
+        _bounce = (close - float(_lows5)) / float(_lows5) * 100 if float(_lows5) > 0 else 0
+        if _bounce >= 3.0:
+            matched_strategies.append("Volume Momentum")
+
     if not matched_strategies:
         return []
 
