@@ -6,14 +6,59 @@ Five factors (weights add to 100):
   Technical    20 — RSI/MACD/SMA alignment score
   Fundamental  15 — valuation/profitability composite
   Risk/Reward  20 — R:R ratio normalised (cap at 5×)
-  Entry Timing 20 — how close current price is to the ideal entry
+  Entry Timing 20 — exponential decay from entry; also penalises stale signals
 
-Entry Timing is the key differentiator: full 20 pts when price is still at/below
-entry, drops to 0 once price has moved >5% past entry (too late to enter safely).
+Entry Timing uses exponential decay: 20 pts at/below entry, decays toward 0 as
+price moves further past entry. An additional age penalty applies: SWING signals
+lose 1pt/day after 3 days; INTRADAY signals lose 2pts after 1 day.
 """
 from __future__ import annotations
+import math
+import datetime
 from typing import Optional
 import yfinance as yf
+
+
+def _entry_timing_score(moved_pct: float) -> float:
+    """
+    Exponential decay: 20 pts at moved_pct ≤ 0, decays to 0 at ~7%.
+    f(x) = 20 × e^(−0.55 × max(0, x))
+    """
+    if moved_pct <= 0:
+        return 20.0
+    return round(20.0 * math.exp(-0.55 * moved_pct), 1)
+
+
+def _age_penalty(sig: dict) -> float:
+    """
+    Penalise signals that are too old to act on.
+    SWING:    −1 pt per day after 3 days (max −10 pts)
+    INTRADAY: −2 pts per day after 1 day  (max −10 pts)
+    """
+    signal_date = sig.get("signal_date") or sig.get("created_at")
+    if not signal_date:
+        return 0.0
+    try:
+        if isinstance(signal_date, str):
+            sd = datetime.date.fromisoformat(signal_date[:10])
+        elif hasattr(signal_date, "date"):
+            sd = signal_date.date()
+        else:
+            sd = datetime.date.fromisoformat(str(signal_date)[:10])
+        age_days = (datetime.date.today() - sd).days
+    except Exception:
+        return 0.0
+
+    tf = (sig.get("timeframe") or "SWING").upper()
+    if tf == "INTRADAY":
+        grace = 1
+        rate  = 2.0
+    else:
+        grace = 3
+        rate  = 1.0
+
+    excess = max(0, age_days - grace)
+    return min(excess * rate, 10.0)
 
 
 def score_signal(sig: dict, curr_price: Optional[float]) -> tuple[float, dict]:
@@ -39,7 +84,7 @@ def score_signal(sig: dict, curr_price: Optional[float]) -> tuple[float, dict]:
     rr = min(float(sig.get("risk_reward") or 2.0), 5.0)
     bd["Risk/Reward"] = round(max(0.0, ((rr - 1.0) / 4.0) * 20), 1)
 
-    # 5. Entry proximity  (0–20 pts)
+    # 5. Entry proximity  (0–20 pts, exponential decay + age penalty)
     pts_prox, prox_label = 10.0, "Price unavailable"
     if curr_price is not None:
         entry   = float(sig.get("entry_price") or 0)
@@ -47,19 +92,21 @@ def score_signal(sig: dict, curr_price: Optional[float]) -> tuple[float, dict]:
         if entry > 0:
             moved_pct = ((curr_price - entry) / entry * 100) if is_long \
                         else ((entry - curr_price) / entry * 100)
-            fmt = f"+{moved_pct:.2f}%" if moved_pct < 0.1 else f"+{moved_pct:.1f}%"
+            pts_prox = _entry_timing_score(moved_pct)
             if moved_pct <= 0:
-                pts_prox, prox_label = 20, "At / below entry ✓"
-            elif moved_pct <= 1:
-                pts_prox, prox_label = 17, f"{fmt} from entry"
+                prox_label = "At / below entry ✓"
             elif moved_pct <= 2:
-                pts_prox, prox_label = 13, f"{fmt} from entry"
-            elif moved_pct <= 3:
-                pts_prox, prox_label = 8,  f"{fmt} from entry"
+                prox_label = f"+{moved_pct:.2f}% from entry"
             elif moved_pct <= 5:
-                pts_prox, prox_label = 3,  f"{fmt} — entry missed"
+                prox_label = f"+{moved_pct:.1f}% — entry missed"
             else:
-                pts_prox, prox_label = 0,  f"{fmt} — too late"
+                prox_label = f"+{moved_pct:.1f}% — too late"
+
+    age_pen = _age_penalty(sig)
+    pts_prox = max(0.0, pts_prox - age_pen)
+    if age_pen > 0:
+        prox_label = f"{prox_label} (−{age_pen:.0f}pt age)"
+
     bd["Entry Timing"]  = round(pts_prox, 1)
     bd["_prox_label"]   = prox_label
 

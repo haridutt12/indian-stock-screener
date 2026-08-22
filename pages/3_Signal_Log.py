@@ -1958,3 +1958,122 @@ with tab_insights:
             hovermode="x unified",
         )
         st.plotly_chart(fig_eq, use_container_width=True)
+
+    # ── Advanced Quality Metrics (signal_quality module) ────────────────────
+    st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+        'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Advanced Quality Metrics</div>',
+        unsafe_allow_html=True,
+    )
+
+    _all_for_quality = log.get_signals(timeframe=timeframe, days_back=days_back)
+    try:
+        from analysis.signal_quality import full_report, strategy_breakdown
+        _qr = full_report(_all_for_quality)
+        _sb = strategy_breakdown(_all_for_quality)
+    except Exception as _qe:
+        logger.warning("signal_quality import failed: %s", _qe)
+        _qr = {}
+        _sb = {}
+
+    if _qr:
+        _qm_cols = st.columns(4)
+        for _qc, (_ql, _qv, _qcc) in zip(_qm_cols, [
+            ("Expectancy (R/trade)",
+             f"{_qr['expectancy']:+.3f}R" if _qr.get("expectancy") is not None else "—",
+             "#00c896" if (_qr.get("expectancy") or 0) >= 0.2 else "#f0b429" if (_qr.get("expectancy") or 0) > 0 else "#ff4d6d"),
+            ("Max Drawdown (R)",
+             f"−{_qr['max_drawdown_r']:.2f}R" if _qr.get("max_drawdown_r") is not None else "—",
+             "#ff4d6d" if (_qr.get("max_drawdown_r") or 0) > 3 else "#f0b429" if (_qr.get("max_drawdown_r") or 0) > 1 else "#00c896"),
+            ("Ulcer Index",
+             f"{_qr['ulcer_index']:.2f}" if _qr.get("ulcer_index") is not None else "—",
+             "#00c896" if (_qr.get("ulcer_index") or 99) < 1 else "#f0b429" if (_qr.get("ulcer_index") or 99) < 2 else "#ff4d6d"),
+            ("Recovery Factor",
+             f"{_qr['recovery_factor']:.2f}×" if _qr.get("recovery_factor") is not None else "—",
+             "#00c896" if (_qr.get("recovery_factor") or 0) >= 3 else "#f0b429" if (_qr.get("recovery_factor") or 0) >= 1 else "#ff4d6d"),
+        ]):
+            with _qc:
+                st.markdown(
+                    f'<div style="background:linear-gradient(145deg,#1a1f35,#141828);'
+                    f'border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 16px;">'
+                    f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                    f'text-transform:uppercase;letter-spacing:0.07em;margin-bottom:5px;">{_ql}</div>'
+                    f'<div style="font-size:0.95rem;font-weight:800;color:{_qcc};">{_qv}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        _qm2_cols = st.columns(4)
+        _streak_type  = _qr.get("current_streak_type") or ""
+        _streak_count = _qr.get("current_streak") or 0
+        _streak_color = "#00c896" if _streak_type == "WIN" else "#ff4d6d"
+        for _qc2, (_ql2, _qv2, _qcc2) in zip(_qm2_cols, [
+            ("Calmar Ratio",
+             f"{_qr['calmar_ratio']:.2f}" if _qr.get("calmar_ratio") is not None else "—",
+             "#00c896" if (_qr.get("calmar_ratio") or 0) >= 1 else "#f0b429" if (_qr.get("calmar_ratio") or 0) > 0 else "#ff4d6d"),
+            ("Max Win Streak",  f"{_qr.get('max_win_streak', 0)}",  "#00c896"),
+            ("Max Loss Streak", f"{_qr.get('max_loss_streak', 0)}", "#ff4d6d"),
+            ("Current Streak",  f"{_streak_count} {'wins' if _streak_type == 'WIN' else 'losses'}", _streak_color),
+        ]):
+            with _qc2:
+                st.markdown(
+                    f'<div style="background:linear-gradient(145deg,#1a1f35,#141828);'
+                    f'border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 16px;margin-top:8px;">'
+                    f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                    f'text-transform:uppercase;letter-spacing:0.07em;margin-bottom:5px;">{_ql2}</div>'
+                    f'<div style="font-size:0.95rem;font-weight:800;color:{_qcc2};">{_qv2}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        if _sb:
+            st.markdown(
+                '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+                'text-transform:uppercase;letter-spacing:0.1em;margin:20px 0 8px;">'
+                'Per-Strategy Quality</div>',
+                unsafe_allow_html=True,
+            )
+            _sb_rows = []
+            for strat, sm in _sb.items():
+                _sb_rows.append({
+                    "Strategy":     strat,
+                    "Trades":       sm["n"],
+                    "Win %":        f"{sm['win_rate']:.0f}%",
+                    "Expectancy":   f"{sm['expectancy']:+.3f}R",
+                    "Profit Factor": f"{sm['pf']:.2f}" if sm.get("pf") else "—",
+                    "Sharpe-R":     f"{sm['sharpe_r']:.2f}" if sm.get("sharpe_r") else "—",
+                    "Total R":      f"{sm['total_r']:+.2f}R",
+                    "Max DD (R)":   f"−{sm['max_dd_r']:.2f}R",
+                })
+            _sb_df = pd.DataFrame(_sb_rows)
+
+            def _exp_color_str(val):
+                try:
+                    v = float(val.replace("R", "").replace("+", ""))
+                    return f"color: {'#00c896' if v > 0.1 else '#f0b429' if v > 0 else '#ff4d6d'}; font-weight: 600;"
+                except Exception:
+                    return ""
+
+            def _wr_color_str(val):
+                try:
+                    v = float(val.replace("%", ""))
+                    return f"color: {'#00c896' if v >= 50 else '#f0b429' if v >= 35 else '#ff4d6d'};"
+                except Exception:
+                    return ""
+
+            _sb_styled = (
+                _sb_df.style
+                .applymap(_exp_color_str, subset=["Expectancy", "Total R"])
+                .applymap(_wr_color_str,  subset=["Win %"])
+            )
+            st.dataframe(_sb_styled, use_container_width=True, hide_index=True)
+
+    elif _all_for_quality:
+        st.markdown(
+            '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
+            'border-radius:12px;padding:20px;text-align:center;color:#475569;font-size:0.82rem;">'
+            'Need at least 3 closed trades for advanced quality metrics.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
