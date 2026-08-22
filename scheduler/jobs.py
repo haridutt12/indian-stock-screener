@@ -130,7 +130,7 @@ def _send_market_update(label: str) -> bool:
 
 
 def run_daily_top3():
-    """10:00 AM IST — Send top 3 ranked open signals to Telegram."""
+    """10:00 AM IST — Send top 3 ranked signals + derivatives morning brief to Telegram."""
     if not is_trading_day():
         return
     logger.info(f"[{datetime.now(IST)}] Sending daily Top 3 signal alert...")
@@ -139,6 +139,11 @@ def run_daily_top3():
         send_top3_signals()
     except Exception as e:
         logger.error(f"Daily Top 3 alert failed: {e}")
+    try:
+        from notifications.telegram import send_derivatives_morning_brief
+        send_derivatives_morning_brief()
+    except Exception as e:
+        logger.error(f"Derivatives morning brief failed: {e}")
 
 
 def run_midday_update():

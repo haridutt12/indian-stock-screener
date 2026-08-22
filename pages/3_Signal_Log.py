@@ -511,6 +511,42 @@ with tab_live:
             unsafe_allow_html=True,
         )
     else:
+        # ── Market context bar: VIX + F&O ban list ──────────────────────────
+        try:
+            from data.fno_ban import get_fno_ban_list
+            _fno_ban = get_fno_ban_list()
+        except Exception:
+            _fno_ban = []
+
+        try:
+            import yfinance as _yf_ctx
+            _vdf = _yf_ctx.Ticker("^INDIAVIX").history(period="1y", interval="1d", auto_adjust=True)
+            _vix_curr = float(_vdf["Close"].iloc[-1]) if not _vdf.empty else None
+            _vix_hist = _vdf["Close"].dropna().tolist() if not _vdf.empty else []
+            _vix_rank = None
+            if _vix_curr and _vix_hist:
+                _vh, _vl = max(_vix_hist), min(_vix_hist)
+                _vix_rank = round((_vix_curr - _vl) / (_vh - _vl) * 100, 0) if _vh != _vl else 50.0
+        except Exception:
+            _vix_curr = _vix_rank = None
+
+        if _vix_curr:
+            _vix_col = "#ff4d6d" if (_vix_rank or 0) >= 70 else ("#f0b429" if (_vix_rank or 0) >= 40 else "#00c896")
+            _vix_label = "FEAR — hedge or reduce size" if (_vix_rank or 0) >= 70 else ("ELEVATED — trade smaller" if (_vix_rank or 0) >= 40 else "CALM — normal sizing ok")
+            st.markdown(
+                f'<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
+                f'border-radius:10px;padding:10px 16px;margin-bottom:12px;'
+                f'display:flex;align-items:center;gap:20px;">'
+                f'<span style="font-size:0.62rem;color:#6b7a99;font-weight:700;text-transform:uppercase;">India VIX</span>'
+                f'<span style="font-size:0.9rem;font-weight:800;color:{_vix_col};">{_vix_curr:.1f}</span>'
+                f'<span style="font-size:0.7rem;color:#475569;">Rank {_vix_rank:.0f}% (1Y)</span>'
+                f'<span style="font-size:0.72rem;color:{_vix_col};font-weight:600;">→ {_vix_label}</span>'
+                + (f'<span style="margin-left:auto;font-size:0.68rem;color:#f0b429;">⚠ F&O Ban: {", ".join(_fno_ban[:8])}{"…" if len(_fno_ban)>8 else ""}</span>'
+                   if _fno_ban else '')
+                + f'</div>',
+                unsafe_allow_html=True,
+            )
+
         @st.fragment(run_every=60 if _mkt_live else None)
         def _live_positions():
             _is_live = _is_mkt_open()
@@ -550,6 +586,12 @@ with tab_live:
                 label     = ticker.replace(".NS", "")
                 dir_col   = "#00c896" if is_long else "#ff4d6d"
                 dir_arr   = "↑ LONG" if is_long else "↓ SHORT"
+                _ban_badge = (
+                    '<span style="background:rgba(240,180,41,0.15);color:#f0b429;'
+                    'border:1px solid rgba(240,180,41,0.3);border-radius:5px;'
+                    'padding:2px 8px;font-size:0.65rem;font-weight:700;">⚠ F&O BAN</span>'
+                    if label in (_fno_ban or []) else ""
+                )
 
                 curr_price = None
                 # Always try fast_info first — returns last trade price
@@ -654,6 +696,7 @@ with tab_live:
                         f'<span style="background:{dir_col}22;color:{dir_col};border:1px solid {dir_col}44;'
                         f'border-radius:5px;padding:2px 8px;font-size:0.7rem;font-weight:700;">{dir_arr}</span>'
                         f'<span style="color:#475569;font-size:0.72rem;">{sig.get("strategy","")} · {sig.get("timeframe","")} · held {days_str}</span>'
+                        f'{_ban_badge}'
                         f'</div>'
                         f'<span style="background:{status_c}22;color:{status_c};border:1px solid {status_c}44;'
                         f'border-radius:6px;padding:3px 12px;font-size:0.78rem;font-weight:700;">{status_l}</span>'
@@ -713,6 +756,32 @@ with tab_live:
                         f'</div>'
                     )
                     st.markdown(html, unsafe_allow_html=True)
+
+                    # ── Options Strategy Suggestion ───────────────────────────────────────
+                    try:
+                        from analysis.options import suggest_options_strategy
+                        _iv_rank_pos = _vix_rank if "_vix_rank" in dir() else None
+                        _opt_strat = suggest_options_strategy(direction, _iv_rank_pos, entry, strike_step=50.0)
+                        with st.expander(f"📐 Options hedge for {label} — {_opt_strat['name']}", expanded=False):
+                            _leg_html = " · ".join(
+                                f'<b style="color:{"#00c896" if l["action"]=="BUY" else "#ff4d6d"};">'
+                                f'{l["action"]} {l["type"]} {l["strike"]:,.0f}</b>'
+                                for l in _opt_strat["legs"]
+                            )
+                            st.markdown(
+                                f'<div style="font-size:0.78rem;color:#94a3b8;margin-bottom:8px;">'
+                                f'{_leg_html}</div>'
+                                f'<div style="font-size:0.72rem;color:#475569;">{_opt_strat["rationale"]}</div>'
+                                f'<div style="display:flex;gap:24px;margin-top:8px;">'
+                                f'<div><span style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;">Max Loss</span>'
+                                f'<div style="font-size:0.75rem;color:#ff4d6d;">{_opt_strat["max_loss"]}</div></div>'
+                                f'<div><span style="font-size:0.6rem;color:#6b7a99;font-weight:700;text-transform:uppercase;">Max Gain</span>'
+                                f'<div style="font-size:0.75rem;color:#00c896;">{_opt_strat["max_gain"]}</div></div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+                    except Exception:
+                        pass
 
                     # ── T1 Hit: trail or book panel ──────────────────────────────────────
                     if sig["signal_id"] in _t1_hit_ids:

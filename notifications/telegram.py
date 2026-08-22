@@ -412,3 +412,85 @@ def send_top3_signals() -> bool:
     except Exception as e:
         logger.error(f"send_top3_signals failed: {e}")
         return False
+
+
+# ── PCR / Derivatives Alert ───────────────────────────────────────────────────
+
+def send_derivatives_morning_brief() -> bool:
+    """
+    Sends a morning derivatives brief: India VIX, PCR (Nifty options chain),
+    and Max Pain level to the Telegram channel.
+    Designed to run after the 10 AM scheduled scan.
+    """
+    if not is_configured():
+        return False
+    try:
+        import yfinance as yf
+        import pandas as pd
+        from analysis.options import compute_pcr, compute_max_pain, compute_iv_rank
+
+        # VIX
+        vdf = yf.Ticker("^INDIAVIX").history(period="1y", interval="1d", auto_adjust=True)
+        vix_curr = float(vdf["Close"].iloc[-1]) if not vdf.empty else None
+        vix_hist = vdf["Close"].dropna().tolist() if not vdf.empty else []
+        vix_rank = None
+        if vix_curr and vix_hist:
+            _vh, _vl = max(vix_hist), min(vix_hist)
+            vix_rank = round((vix_curr - _vl) / (_vh - _vl) * 100, 1) if _vh != _vl else 50.0
+
+        # Options chain — nearest expiry
+        nifty = yf.Ticker("^NSEI")
+        expiries = nifty.options
+        pcr_msg = max_pain_msg = ""
+
+        if expiries:
+            chain  = nifty.option_chain(expiries[0])
+            calls  = chain.calls
+            puts   = chain.puts
+            pcr    = compute_pcr(calls, puts)
+            mp     = compute_max_pain(calls, puts)
+
+            pcr_oi  = pcr.get("pcr_oi")
+            signal  = pcr.get("signal", "NEUTRAL")
+            sentiment = pcr.get("sentiment", "")
+            pcr_emoji = "🟢" if signal == "LONG" else ("🔴" if signal == "SHORT" else "🟡")
+            pcr_msg = (
+                f"\n📊 <b>Nifty Options (Expiry {expiries[0]})</b>"
+                f"\nOI PCR:   <b>{pcr_oi or '—'}</b>  {pcr_emoji} {sentiment}"
+            )
+            if mp:
+                spot_df = nifty.history(period="2d", interval="1d", auto_adjust=True)
+                spot = float(spot_df["Close"].iloc[-1]) if not spot_df.empty else None
+                gap_str = f" (spot {spot:,.0f} → {'+' if spot and mp > spot else ''}{mp-spot if spot else 0:,.0f} gap)" if spot else ""
+                max_pain_msg = f"\nMax Pain: <b>₹{mp:,.0f}</b>{gap_str}"
+
+        # IV Rank
+        ivr = ""
+        if vix_curr and vix_hist:
+            from analysis.options import compute_iv_rank as _ivr
+            ir = _ivr(vix_curr, vix_hist)
+            ivr = f"\nIV Rank:  <b>{ir.get('iv_rank','—')}%</b>  — {ir.get('label','')}"
+
+        now = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+        vix_line = ""
+        if vix_curr:
+            vix_emoji = "😱" if (vix_rank or 0) >= 70 else ("😬" if (vix_rank or 0) >= 40 else "😌")
+            vix_line = f"\nIndia VIX: <b>{vix_curr:.1f}</b>  ({vix_rank:.0f}% rank)  {vix_emoji}"
+
+        msg = (
+            f"📐 <b>Derivatives Morning Brief — NiftyEdge</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🕐 {now}"
+            + vix_line
+            + ivr
+            + pcr_msg
+            + max_pain_msg
+            + f"\n\n🔗 <a href='https://stockscreener4.streamlit.app/Derivatives'>Full Options Chain →</a>"
+        )
+        ok = send_message(msg)
+        if ok:
+            logger.info("Derivatives morning brief sent to Telegram.")
+        return ok
+    except Exception as exc:
+        logger.error("send_derivatives_morning_brief failed: %s", exc)
+        return False
