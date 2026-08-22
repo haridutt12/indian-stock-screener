@@ -137,6 +137,7 @@ pg = st.navigation(
         st.Page("pages/18_Stat_Screener.py",        title="Stat Screener",         icon="📐"),
         st.Page("pages/19_Correlation.py",          title="Correlation Matrix",    icon="🔗"),
         st.Page("pages/20_Risk_Dashboard.py",       title="Risk Dashboard",        icon="🛡️"),
+        st.Page("pages/21_Breadth.py",              title="Breadth Analytics",     icon="📡"),
     ],
     position="sidebar",
 )
