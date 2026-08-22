@@ -1446,6 +1446,80 @@ with tab_perf:
             else:
                 st.caption("Close trades to see benchmark comparison.")
 
+    # ── Backtest Validator ───────────────────────────────────────────────────
+    if total_closed >= 3:
+        st.markdown(
+            '<div style="font-size:0.78rem;font-weight:700;color:#94a3b8;margin:24px 0 8px;">'
+            'Backtest Validator — Replay Closed Signals vs Actual OHLC</div>',
+            unsafe_allow_html=True,
+        )
+        with st.expander("🔬 Validate signal outcomes against historical prices", expanded=False):
+            st.caption(
+                "Replays each closed signal against daily OHLC price data to simulate if the "
+                "SL/T1/T2 levels would have been hit in reality. "
+                "Helps detect any logging errors or outcome mismatches. "
+                "Fetches live data — may take a few seconds."
+            )
+            _bt_n = st.slider("Signals to backtest (most recent)", 3, min(30, total_closed), min(10, total_closed), key="bt_n")
+            if st.button("▶ Run Backtest Validation", key="run_bt", type="primary"):
+                from analysis.backtest import backtest_signals, backtest_summary
+                _bt_signals = sorted(
+                    [s for s in closed_signals if s.get("signal_date")],
+                    key=lambda x: x.get("outcome_at", ""), reverse=True,
+                )[:_bt_n]
+                with st.spinner(f"Replaying {len(_bt_signals)} signals against OHLC…"):
+                    _bt_df = backtest_signals(_bt_signals, max_days=20)
+                if not _bt_df.empty:
+                    _bt_sum = backtest_summary(_bt_df)
+                    _bts1, _bts2, _bts3, _bts4 = st.columns(4)
+                    for _bc, (_bl, _bv, _bc2) in zip([_bts1, _bts2, _bts3, _bts4], [
+                        ("Win Rate (sim)",    f'{_bt_sum.get("win_rate","—")}%',          "#00c896" if (_bt_sum.get("win_rate") or 0) >= 50 else "#ff4d6d"),
+                        ("Avg R (sim)",       f'{_bt_sum.get("avg_r","—")}R',             "#00c896" if (_bt_sum.get("avg_r") or 0) > 0 else "#ff4d6d"),
+                        ("Profit Factor",     f'{_bt_sum.get("pf","—")}x' if _bt_sum.get("pf") else "—", "#00c896" if (_bt_sum.get("pf") or 0) >= 1.5 else "#f0b429"),
+                        ("Avg Hold (bars)",   f'{_bt_sum.get("avg_bars","—")}d',          "#94a3b8"),
+                    ]):
+                        with _bc:
+                            st.markdown(
+                                f'<div style="background:#1a1f35;border:1px solid rgba(255,255,255,0.06);'
+                                f'border-radius:10px;padding:12px 14px;">'
+                                f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                                f'text-transform:uppercase;margin-bottom:5px;">{_bl}</div>'
+                                f'<div style="font-size:1rem;font-weight:800;color:{_bc2};">{_bv}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    # Outcome match rate
+                    _match_n = _bt_df["outcome_match"].sum() if "outcome_match" in _bt_df.columns else 0
+                    _match_pct = round(_match_n / len(_bt_df) * 100) if len(_bt_df) > 0 else 0
+                    st.caption(f"Outcome validation: {_match_n}/{len(_bt_df)} signals ({_match_pct}%) match logged vs simulated outcome.")
+
+                    _bt_display = _bt_df[[
+                        "ticker", "strategy", "direction", "signal_date",
+                        "logged_outcome", "sim_outcome", "sim_pnl_r", "sim_bars",
+                    ]].copy()
+                    _bt_display.columns = [
+                        "Ticker", "Strategy", "Dir", "Date",
+                        "Logged Outcome", "Sim Outcome", "Sim P&L (R)", "Bars",
+                    ]
+
+                    def _outcome_style(row):
+                        match = row["Logged Outcome"] == row["Sim Outcome"]
+                        return [""] * 5 + [
+                            "color: #00c896;" if match else "color: #ff4d6d;",
+                            "",
+                            "",
+                        ]
+
+                    st.dataframe(
+                        _bt_display.style.apply(_outcome_style, axis=1).format(
+                            {"Sim P&L (R)": "{:+.2f}R"}
+                        ),
+                        use_container_width=True, hide_index=True,
+                    )
+                else:
+                    st.warning("No backtest results — check that signals have valid price levels and dates.")
+
 
 # ╔═══════════════════════════════════════════════════════════════════════════════╗
 # ║  TAB 3 — HISTORY                                                            ║

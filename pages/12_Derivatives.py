@@ -21,6 +21,10 @@ from analysis.options import (
     compute_iv_rank, suggest_options_strategy,
     find_atm_strike, days_to_expiry, RISK_FREE_RATE,
 )
+from analysis.futures import (
+    fair_value, basis, basis_pct, annualised_carry,
+    interpret_basis, rollover_cost_pct,
+)
 
 page_header("Derivatives Hub", "Nifty & BankNifty Options Chain · PCR · Max Pain · IV Rank")
 user_sidebar()
@@ -29,6 +33,11 @@ user_sidebar()
 INDEX_MAP = {
     "Nifty 50":    ("^NSEI",    "NIFTY",     50),
     "Bank Nifty":  ("^NSEBANK", "BANKNIFTY", 15),
+}
+# yfinance futures tickers (continuous contracts)
+FUTURES_MAP = {
+    "Nifty 50":   "NIFTY_FUT.NS",   # approximate — actual contract is on NSE
+    "Bank Nifty": "BANKNIFTY_FUT.NS",
 }
 col_sel, col_exp, col_info = st.columns([2, 2, 4])
 with col_sel:
@@ -408,6 +417,81 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Futures Basis Tracker ────────────────────────────────────────────────────
+st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+st.markdown(
+    '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Futures Basis & Cost of Carry</div>',
+    unsafe_allow_html=True,
+)
+
+with st.expander("📊 Futures Basis Analysis", expanded=False):
+    _fut_c1, _fut_c2, _fut_c3 = st.columns(3)
+    with _fut_c1:
+        _fut_price = st.number_input(
+            f"{idx_name} Futures price (₹)",
+            min_value=0.0, max_value=100000.0,
+            value=round(spot * 1.002, 1) if spot > 0 else 0.0,
+            step=0.5, key="fut_price",
+        )
+    with _fut_c2:
+        _fut_dte = st.number_input(
+            "Days to expiry", min_value=1, max_value=90,
+            value=dte if dte > 0 else 28, key="fut_dte",
+        )
+    with _fut_c3:
+        _near_fut = st.number_input(
+            "Near-month futures (for rollover)", min_value=0.0,
+            value=round(spot * 1.001, 1) if spot > 0 else 0.0,
+            step=0.5, key="near_fut",
+        )
+
+    if spot > 0 and _fut_price > 0:
+        _fv  = fair_value(spot, _fut_dte)
+        _bas = basis(spot, _fut_price)
+        _bpc = basis_pct(spot, _fut_price)
+        _acc = annualised_carry(spot, _fut_price, _fut_dte)
+        _itp = interpret_basis(_bpc, _acc)
+        _rc  = rollover_cost_pct(_near_fut, _fut_price) if _near_fut > 0 else None
+
+        fb1, fb2, fb3, fb4, fb5 = st.columns(5)
+        for _fc, (_fl, _fv2, _fc2) in zip([fb1, fb2, fb3, fb4, fb5], [
+            ("Spot",           f"₹{spot:,.2f}",                               "#94a3b8"),
+            ("Futures",        f"₹{_fut_price:,.2f}",                         "#e2e8f0"),
+            ("Basis",          f"₹{_bas:+,.2f} ({_bpc:+.3f}%)",              _itp["color"]),
+            ("Fair Value",     f"₹{_fv:,.2f}",                               "#3b82f6"),
+            ("Implied Carry",  f"{_acc:.2f}%p.a." if _acc else "—",          "#f0b429"),
+        ]):
+            with _fc:
+                st.markdown(
+                    f'<div style="background:linear-gradient(145deg,#1a1f35,#141828);'
+                    f'border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 14px;">'
+                    f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                    f'text-transform:uppercase;letter-spacing:0.07em;margin-bottom:5px;">{_fl}</div>'
+                    f'<div style="font-size:0.9rem;font-weight:700;color:{_fc2};">{_fv2}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown(
+            f'<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
+            f'border-left:4px solid {_itp["color"]};border-radius:10px;padding:14px 16px;margin-top:12px;">'
+            f'<div style="font-size:0.78rem;font-weight:700;color:{_itp["color"]};margin-bottom:4px;">'
+            f'{_itp["signal"]}</div>'
+            f'<div style="font-size:0.72rem;color:#94a3b8;margin-bottom:4px;">{_itp["desc"]}</div>'
+            f'<div style="font-size:0.68rem;color:#475569;">{_itp["action"]}</div>'
+            + (f'<div style="font-size:0.68rem;color:#f0b429;margin-top:8px;">'
+               f'Rollover cost (near→far): {_rc:+.3f}% of near-month price</div>'
+               if _rc is not None else '')
+            + f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.caption(
+            f"Fair value = spot × e^(r×T) = ₹{_fv:,.2f} at {RISK_FREE_RATE*100:.1f}% risk-free for {_fut_dte}d. "
+            f"Actual futures at ₹{_fut_price:,.2f} ({'+' if _bpc >= 0 else ''}{_bpc:.3f}% vs spot)."
+        )
+
 st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
 
 # ── Strategy Payoff Diagram ───────────────────────────────────────────────────
@@ -548,6 +632,71 @@ with st.expander("🎯 Kelly Criterion + VIX-Adjusted Sizing", expanded=False):
         f"Half-Kelly × VIX multiplier ({vix_mult:.2f}) = {adjusted_f*100:.1f}% of capital. "
         f"VIX rank {vix.get('rank','—')}% → {'reduce size (high fear)' if vix_mult < 1 else 'normal sizing'}. "
         f"Max risk 2%/trade = ₹{max_risk_inr:,}."
+    )
+
+# ── Scenario P&L Grid (Spot × IV matrix) ─────────────────────────────────────
+st.markdown('<div style="margin-top:24px;"></div>', unsafe_allow_html=True)
+st.markdown(
+    '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Scenario P&L Matrix</div>',
+    unsafe_allow_html=True,
+)
+
+with st.expander("🔢 Spot × IV Scenario Grid (What-if analysis)", expanded=False):
+    sg1, sg2, sg3 = st.columns(3)
+    with sg1:
+        _sg_type   = st.radio("Option type", ["ATM Call (CE)", "ATM Put (PE)"], horizontal=True, key="sg_type")
+    with sg2:
+        _sg_lots   = st.number_input("Lots (BUY)", 1, 50, 1, key="sg_lots")
+    with sg3:
+        _sg_iv_base = st.number_input("Current IV (%)", 5.0, 80.0,
+                                      round(atm_iv_call * 100, 1) if _sg_type == "ATM Call (CE)" else round(atm_iv_put * 100, 1),
+                                      0.5, key="sg_iv")
+
+    _sg_opt  = "call" if "Call" in _sg_type else "put"
+    _sg_iv0  = _sg_iv_base / 100
+    _sg_base_g = bs_greeks(spot, atm, T_yrs, _sg_iv0, option_type=_sg_opt)
+    _sg_base_p = _sg_base_g["price"] * lot_size * _sg_lots
+
+    # Spot moves: -5% to +5% in 1% steps
+    _spot_moves = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
+    # IV changes: -30% to +30% in 10% steps
+    _iv_changes = [-30, -20, -10, 0, 10, 20, 30]
+
+    _matrix_rows = []
+    for _dv in _iv_changes:
+        _new_iv = max(0.01, _sg_iv0 * (1 + _dv / 100))
+        row = {"IV Δ": f"{_dv:+d}%"}
+        for _ds in _spot_moves:
+            _new_spot = spot * (1 + _ds / 100)
+            _g = bs_greeks(_new_spot, atm, T_yrs, _new_iv, option_type=_sg_opt)
+            _pnl = (_g["price"] - _sg_base_g["price"]) * lot_size * _sg_lots
+            row[f"Spot {_ds:+d}%"] = round(_pnl)
+        _matrix_rows.append(row)
+
+    _sg_df = pd.DataFrame(_matrix_rows).set_index("IV Δ")
+
+    # Color the dataframe cells
+    def _color_pnl(val):
+        if not isinstance(val, (int, float)):
+            return ""
+        if val > 0:
+            intensity = min(int(val / (_sg_base_p or 1000) * 255), 200)
+            return f"background-color: rgba(0,200,150,{intensity/1000:.2f}); color: #00c896;"
+        if val < 0:
+            intensity = min(int(abs(val) / (_sg_base_p or 1000) * 255), 200)
+            return f"background-color: rgba(255,77,109,{intensity/1000:.2f}); color: #ff4d6d;"
+        return "color: #94a3b8;"
+
+    st.dataframe(
+        _sg_df.style.applymap(_color_pnl).format("₹{:+,}"),
+        use_container_width=True,
+    )
+    st.caption(
+        f"ATM {_sg_type} · strike ₹{atm:,.0f} · base IV {_sg_iv_base:.1f}% · "
+        f"{_sg_lots} lot(s) × {lot_size} = {_sg_lots * lot_size} units · "
+        f"base premium ₹{_sg_base_g['price']:.2f} · total cost ₹{_sg_base_p:,.0f} · "
+        f"DTE {dte}d. Values show P&L vs base at different spot and IV scenarios."
     )
 
 st.caption(
