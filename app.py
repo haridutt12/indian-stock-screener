@@ -131,6 +131,8 @@ pg = st.navigation(
         st.Page("pages/12_Derivatives.py",          title="Derivatives Hub",      icon="📐"),
         st.Page("pages/13_VWAP_Tracker.py",         title="VWAP Tracker",         icon="📡"),
         st.Page("pages/14_Momentum.py",             title="Momentum Screener",    icon="🏎️"),
+        st.Page("pages/15_Sector_Rotation.py",      title="Sector Rotation",       icon="🔄"),
+        st.Page("pages/16_OI_Analytics.py",         title="OI Analytics",          icon="📊"),
     ],
     position="sidebar",
 )
