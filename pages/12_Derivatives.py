@@ -408,6 +408,148 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+
+# ── Strategy Payoff Diagram ───────────────────────────────────────────────────
+st.markdown(
+    '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Strategy Payoff at Expiry</div>',
+    unsafe_allow_html=True,
+)
+
+with st.expander("📈 View Payoff Diagram", expanded=True):
+    pd_col1, pd_col2 = st.columns([1, 2])
+    with pd_col1:
+        _pd_direction = st.radio("Payoff for", ["LONG signal", "SHORT signal"], horizontal=False, key="pd_dir")
+        _pd_lots      = st.number_input("Lots", min_value=1, max_value=50, value=1, key="pd_lots")
+        _pd_premium   = st.number_input("Estimated premium (₹ per unit)", min_value=0.0, value=50.0, step=5.0, key="pd_prem")
+
+    _pd_strat = suggest_options_strategy(
+        "LONG" if "LONG" in _pd_direction else "SHORT",
+        iv_rank_data.get("iv_rank"), spot, strike_step=50.0,
+    )
+    _strikes_range = [spot * f / 100 for f in range(85, 116)]
+
+    def _payoff_at(underlying: float, legs: list, premium: float, lots: int, ls: int) -> float:
+        """P&L at expiry for a multi-leg strategy. ls=lot_size."""
+        pnl = 0.0
+        for leg in legs:
+            K       = leg["strike"]
+            otype   = leg["type"]   # CE or PE
+            action  = leg["action"] # BUY or SELL
+            mult    = 1 if action == "BUY" else -1
+            if otype == "CE":
+                intrinsic = max(0, underlying - K)
+            else:
+                intrinsic = max(0, K - underlying)
+            pnl += mult * intrinsic * lots * ls
+        # deduct/credit premium for all legs (simplified: one debit/credit)
+        net_debit = premium * lots * ls
+        return pnl - net_debit
+
+    payoffs = [_payoff_at(s, _pd_strat["legs"], _pd_premium, _pd_lots, lot_size) for s in _strikes_range]
+
+    with pd_col2:
+        fig_pay = go.Figure()
+        pay_cols = ["#ff4d6d" if p < 0 else "#00c896" for p in payoffs]
+        fig_pay.add_trace(go.Scatter(
+            x=_strikes_range, y=payoffs,
+            mode="lines",
+            line=dict(color="#3b82f6", width=2.5),
+            fill="tozeroy",
+            fillcolor="rgba(59,130,246,0.08)",
+            hovertemplate="Spot ₹%{x:,.0f}<br>P&L: ₹%{y:,.0f}<extra></extra>",
+            name="P&L at expiry",
+        ))
+        fig_pay.add_hline(y=0, line_dash="solid", line_color="rgba(255,255,255,0.2)", line_width=1)
+        fig_pay.add_vline(x=spot, line_dash="dash", line_color="#f0b429", line_width=1.5,
+                          annotation_text=f"Spot {spot:,.0f}", annotation_font_color="#f0b429")
+        if max_pain_level:
+            fig_pay.add_vline(x=max_pain_level, line_dash="dot", line_color="#a78bfa", line_width=1,
+                              annotation_text="Max Pain", annotation_font_color="#a78bfa")
+        fig_pay.update_layout(
+            title=dict(text=f"{_pd_strat['name']} · {_pd_lots} lot(s) · Expiry {selected_expiry}",
+                       font=dict(size=12, color="#94a3b8")),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter, sans-serif", color="#94a3b8", size=11),
+            margin=dict(l=0, r=0, t=36, b=0), height=300,
+            xaxis=dict(title="Spot at expiry", gridcolor="rgba(255,255,255,0.04)",
+                       tickprefix="₹", tickfont=dict(size=10)),
+            yaxis=dict(title="P&L (₹)", gridcolor="rgba(255,255,255,0.06)",
+                       tickprefix="₹", tickfont=dict(size=10)),
+            hovermode="x",
+        )
+        st.plotly_chart(fig_pay, use_container_width=True)
+
+# ── Position Size Calculator (Kelly + VIX adjustment) ────────────────────────
+st.markdown(
+    '<div style="font-size:0.62rem;font-weight:700;color:#475569;'
+    'text-transform:uppercase;letter-spacing:0.1em;margin:24px 0 12px;">Position Size Calculator</div>',
+    unsafe_allow_html=True,
+)
+
+with st.expander("🎯 Kelly Criterion + VIX-Adjusted Sizing", expanded=False):
+    ps_col1, ps_col2, ps_col3 = st.columns(3)
+    with ps_col1:
+        ps_capital    = st.number_input("Total capital (₹)", min_value=10000, max_value=10000000,
+                                        value=500000, step=10000, key="ps_cap")
+    with ps_col2:
+        ps_win_rate   = st.number_input("Historical win rate (%)", min_value=10, max_value=90,
+                                        value=55, key="ps_wr")
+    with ps_col3:
+        ps_rr         = st.number_input("Risk:Reward ratio", min_value=0.5, max_value=10.0,
+                                        value=2.0, step=0.1, key="ps_rr")
+
+    # Kelly fraction: f* = p - q/b  where p=win rate, q=1-p, b=R:R
+    p = ps_win_rate / 100
+    q = 1 - p
+    b = ps_rr
+    kelly_f = max(0.0, p - q / b)
+
+    # Half-Kelly (standard practice)
+    half_kelly = kelly_f / 2
+
+    # VIX adjustment: reduce by up to 50% when VIX rank > 70
+    vix_mult = 1.0
+    if vix and vix.get("rank"):
+        vr = vix["rank"]
+        if vr >= 70:
+            vix_mult = 0.5
+        elif vr >= 50:
+            vix_mult = 0.75
+        elif vr <= 20:
+            vix_mult = 1.1  # low vol — can size up slightly
+
+    adjusted_f = min(half_kelly * vix_mult, 0.20)  # hard cap at 20% of capital
+    position_inr = round(ps_capital * adjusted_f / 100) * 100
+
+    # Max risk per trade
+    max_risk_inr = round(ps_capital * 0.02 / 100) * 100
+
+    kc1, kc2, kc3, kc4 = st.columns(4)
+    for col, label, val, c in [
+        (kc1, "Kelly Fraction",  f"{kelly_f*100:.1f}%",         "#94a3b8"),
+        (kc2, "Half-Kelly",      f"{half_kelly*100:.1f}%",      "#94a3b8"),
+        (kc3, "VIX Multiplier",  f"×{vix_mult:.2f}",           "#f0b429" if vix_mult < 1 else "#00c896"),
+        (kc4, "Recommended Size", f"₹{position_inr:,}",        "#00c896" if position_inr > 0 else "#ff4d6d"),
+    ]:
+        with col:
+            st.markdown(
+                f'<div style="background:linear-gradient(145deg,#1a1f35,#141828);'
+                f'border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">'
+                f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                f'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">{label}</div>'
+                f'<div style="font-size:1.05rem;font-weight:800;color:{c};">{val}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.caption(
+        f"Half-Kelly × VIX multiplier ({vix_mult:.2f}) = {adjusted_f*100:.1f}% of capital. "
+        f"VIX rank {vix.get('rank','—')}% → {'reduce size (high fear)' if vix_mult < 1 else 'normal sizing'}. "
+        f"Max risk 2%/trade = ₹{max_risk_inr:,}."
+    )
+
 st.caption(
     f"Data via yfinance · Expiry: {selected_expiry} · "
     f"Greeks computed using Black-Scholes (risk-free: {RISK_FREE_RATE*100:.1f}%) · "

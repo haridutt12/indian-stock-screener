@@ -477,6 +477,42 @@ with t_home:
         )
         st.markdown('<div style="margin-bottom:16px;"></div>', unsafe_allow_html=True)
 
+    # ── Multi-Timeframe Confluence ─────────────────────────────────────────────
+    try:
+        from signals.signal_logger import get_signal_logger as _gsl_h
+        _confluences = _gsl_h().get_confluence_signals()
+        if _confluences:
+            st.markdown(
+                '<div style="font-size:0.68rem;font-weight:700;color:#a78bfa;'
+                'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">'
+                '⚡ Multi-Timeframe Confluence</div>',
+                unsafe_allow_html=True,
+            )
+            _cf_html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">'
+            for _cf in _confluences[:6]:
+                _cdir = _cf["direction"]
+                _cc   = "#00c896" if _cdir == "LONG" else "#ff4d6d"
+                _carr = "↑" if _cdir == "LONG" else "↓"
+                _cf_html += (
+                    f'<div style="background:rgba(167,139,250,0.05);border:1px solid rgba(167,139,250,0.2);'
+                    f'border-left:3px solid #a78bfa;border-radius:10px;padding:10px 14px;min-width:180px;">'
+                    f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'
+                    f'<span style="font-size:0.88rem;font-weight:800;color:#e2e8f0;">'
+                    f'{_cf["ticker"].replace(".NS","")}</span>'
+                    f'<span style="font-size:0.7rem;font-weight:700;color:{_cc};">{_carr} {_cdir}</span>'
+                    f'</div>'
+                    f'<div style="font-size:0.65rem;color:#475569;line-height:1.5;">'
+                    f'Swing: {_cf["swing_strategy"]}<br>'
+                    f'Intraday: {_cf["intra_strategy"]}</div>'
+                    f'<div style="font-size:0.68rem;color:#a78bfa;font-weight:600;margin-top:4px;">'
+                    f'R:R {_cf["risk_reward"]:.1f}× · Conf {_cf["confidence"]}★</div>'
+                    f'</div>'
+                )
+            _cf_html += '</div>'
+            st.markdown(_cf_html, unsafe_allow_html=True)
+    except Exception:
+        pass
+
     # ── Market Pulse ───────────────────────────────────────────────────────────
     indices = _hero_indices()
 

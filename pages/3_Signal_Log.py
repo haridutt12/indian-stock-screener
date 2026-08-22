@@ -1235,6 +1235,118 @@ with tab_perf:
             if any(s["wins"] + s["losses"] < 3 for s in by_strat.values()):
                 st.caption("Win Rate shows — for strategies with fewer than 3 closed trades (too small a sample).")
 
+        # ── Quant Metrics ─────────────────────────────────────────────────────
+        if total_closed >= 5:
+            st.markdown(
+                '<div style="font-size:0.78rem;font-weight:700;color:#94a3b8;margin:20px 0 8px;">Quant Metrics</div>',
+                unsafe_allow_html=True,
+            )
+            _r_series = []
+            for _s in sorted(closed_signals, key=lambda x: (x.get("outcome_at") or "")):
+                _r = _s.get("net_pnl_r")
+                if _r is None:
+                    _rp = (abs(_s.get("entry_price", 0) - _s.get("stop_loss", 0)) / (_s.get("entry_price", 1) or 1))
+                    _rp = _rp if _rp > 0 else 0.02
+                    _r  = (_s.get("net_pnl_inr") or 0) / (float(position_size) * _rp) if _rp else 0.0
+                _r_series.append(float(_r))
+
+            # Profit Factor
+            _gross_wins  = sum(r for r in _r_series if r > 0)
+            _gross_losses = abs(sum(r for r in _r_series if r < 0))
+            _pf = round(_gross_wins / _gross_losses, 2) if _gross_losses > 0 else None
+
+            # Sharpe-R (mean R / std R)
+            import statistics as _stat
+            _mean_r = _stat.mean(_r_series) if _r_series else 0
+            _std_r  = _stat.stdev(_r_series) if len(_r_series) >= 2 else 0
+            _sharpe_r = round(_mean_r / _std_r, 2) if _std_r > 0 else None
+
+            # Max consecutive losses
+            _max_cl = _cur_cl = 0
+            for r in _r_series:
+                if r < 0:
+                    _cur_cl += 1
+                    _max_cl = max(_max_cl, _cur_cl)
+                else:
+                    _cur_cl = 0
+
+            # Max drawdown from R-series cumulative curve
+            _cum = []
+            _running = 0.0
+            for r in _r_series:
+                _running += r
+                _cum.append(_running)
+            _peak = _cum[0] if _cum else 0
+            _max_dd = 0.0
+            for v in _cum:
+                _peak = max(_peak, v)
+                _dd   = _peak - v
+                _max_dd = max(_max_dd, _dd)
+
+            _pf_col = "#00c896" if (_pf or 0) >= 1.5 else ("#f0b429" if (_pf or 0) >= 1.0 else "#ff4d6d")
+            _sr_col = "#00c896" if (_sharpe_r or 0) >= 0.5 else ("#f0b429" if (_sharpe_r or 0) >= 0.0 else "#ff4d6d")
+            _cl_col = "#ff4d6d" if _max_cl >= 5 else ("#f0b429" if _max_cl >= 3 else "#00c896")
+            _dd_col = "#ff4d6d" if _max_dd >= 5 else ("#f0b429" if _max_dd >= 3 else "#00c896")
+
+            _qm_cols = st.columns(4)
+            for _qcol, (_qlabel, _qval, _qsub, _qc) in zip(_qm_cols, [
+                ("Profit Factor",     f"{_pf:.2f}x" if _pf else "—",            "Gross wins / gross losses (>1.5 = good)",           _pf_col),
+                ("Sharpe-R",         f"{_sharpe_r:.2f}" if _sharpe_r else "—",  "Mean R / Std R — risk-adjusted per-trade edge",      _sr_col),
+                ("Max Consec. Losses", str(_max_cl),                             "Longest losing streak in this period",               _cl_col),
+                ("Max Drawdown (R)", f"{_max_dd:.1f}R",                          "Peak-to-trough drawdown of cumulative R-curve",      _dd_col),
+            ]):
+                with _qcol:
+                    st.markdown(
+                        f'<div style="background:linear-gradient(145deg,#1a1f35,#141828);'
+                        f'border:1px solid rgba(255,255,255,0.06);border-top:3px solid {_qc};'
+                        f'border-radius:12px;padding:14px 16px;">'
+                        f'<div style="font-size:0.58rem;color:#6b7a99;font-weight:700;'
+                        f'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">{_qlabel}</div>'
+                        f'<div style="font-size:1.15rem;font-weight:800;color:{_qc};margin-bottom:4px;">{_qval}</div>'
+                        f'<div style="font-size:0.62rem;color:#374151;">{_qsub}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        # ── Monthly P&L Heatmap ───────────────────────────────────────────────
+        _heat_sigs = [s for s in closed_signals if s.get("outcome_at") and s.get("net_pnl_inr") is not None]
+        if len(_heat_sigs) >= 5:
+            st.markdown(
+                '<div style="font-size:0.78rem;font-weight:700;color:#94a3b8;margin:20px 0 8px;">'
+                'Monthly P&L Heatmap</div>',
+                unsafe_allow_html=True,
+            )
+            _monthly: dict = {}
+            for _hs in _heat_sigs:
+                try:
+                    _mo = _hs["outcome_at"][:7]  # YYYY-MM
+                    _monthly[_mo] = _monthly.get(_mo, 0.0) + float(_hs["net_pnl_inr"] or 0)
+                except Exception:
+                    pass
+            if _monthly:
+                _mo_sorted = sorted(_monthly.keys())
+                _mo_vals   = [round(_monthly[m]) for m in _mo_sorted]
+                _heat_cols = ["#00c896" if v >= 0 else "#ff4d6d" for v in _mo_vals]
+                _heat_fig  = go.Figure()
+                _heat_fig.add_trace(go.Bar(
+                    x=_mo_sorted, y=_mo_vals,
+                    marker_color=_heat_cols,
+                    text=[f"₹{v:+,}" for v in _mo_vals],
+                    textposition="outside",
+                    textfont=dict(size=10, color="#94a3b8"),
+                    hovertemplate="%{x}<br>P&L: ₹%{y:+,}<extra></extra>",
+                ))
+                _heat_fig.add_hline(y=0, line_color="rgba(255,255,255,0.15)", line_width=1)
+                _heat_fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Inter, sans-serif", color="#94a3b8", size=10),
+                    margin=dict(l=0, r=0, t=24, b=0), height=220,
+                    xaxis=dict(gridcolor="rgba(255,255,255,0.04)", tickfont=dict(size=10)),
+                    yaxis=dict(gridcolor="rgba(255,255,255,0.06)", tickprefix="₹", tickfont=dict(size=10)),
+                    showlegend=False,
+                )
+                st.plotly_chart(_heat_fig, use_container_width=True)
+
         # ── Sector Allocation + Nifty 50 Benchmark ────────────────────────────
         _perf_c1, _perf_c2 = st.columns(2)
 

@@ -1101,6 +1101,59 @@ class SignalLogger:
             logger.info(f"Purged {deleted} intraday signal(s) from non-trading days.")
         return deleted
 
+    def get_confluence_signals(self) -> list[dict]:
+        """
+        Return tickers that have BOTH an open SWING and an open INTRADAY signal.
+        These are multi-timeframe confluences — highest-conviction setups.
+        Returns list of dicts with keys: ticker, swing_signal, intraday_signal, direction.
+        """
+        try:
+            with self._db_conn() as conn:
+                # All open signals, both timeframes
+                cur = self._exec(
+                    conn,
+                    """
+                    SELECT ticker, timeframe, strategy, direction, entry_price,
+                           stop_loss, target_1, target_2, risk_reward, confidence,
+                           signal_date, signal_id
+                    FROM signal_log
+                    WHERE outcome=?
+                    ORDER BY logged_at DESC
+                    """,
+                    (OUTCOME_OPEN,),
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+        except Exception as exc:
+            logger.error("get_confluence_signals failed: %s", exc)
+            return []
+
+        swing_by_ticker: dict = {}
+        intra_by_ticker: dict = {}
+        for r in rows:
+            t = r["ticker"]
+            if r["timeframe"] == "SWING" and t not in swing_by_ticker:
+                swing_by_ticker[t] = r
+            elif r["timeframe"] == "INTRADAY" and t not in intra_by_ticker:
+                intra_by_ticker[t] = r
+
+        confluences = []
+        for ticker, swing in swing_by_ticker.items():
+            intra = intra_by_ticker.get(ticker)
+            if intra and swing["direction"] == intra["direction"]:
+                confluences.append({
+                    "ticker":          ticker,
+                    "direction":       swing["direction"],
+                    "swing_strategy":  swing["strategy"],
+                    "intra_strategy":  intra["strategy"],
+                    "entry":           swing["entry_price"],
+                    "stop_loss":       swing["stop_loss"],
+                    "target_1":        swing["target_1"],
+                    "target_2":        swing["target_2"],
+                    "confidence":      max(swing["confidence"] or 1, intra["confidence"] or 1),
+                    "risk_reward":     swing["risk_reward"],
+                })
+        return confluences
+
 
 # ── Singleton ──────────────────────────────────────────────────────────────────────────
 
