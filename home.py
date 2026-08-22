@@ -513,6 +513,46 @@ with t_home:
     except Exception:
         pass
 
+    # ── System Quality Strip ───────────────────────────────────────────────────
+    try:
+        from analysis.signal_quality import full_report
+        from signals.signal_logger import get_signal_logger as _get_sq_sl
+        _sq_signals = _get_sq_sl().get_signals(days_back=30)
+        _sq_closed  = [s for s in _sq_signals if s.get("outcome") not in (None, "OPEN")]
+        if len(_sq_closed) >= 5:
+            _sqr = full_report(_sq_closed)
+            _exp   = _sqr.get("expectancy", 0)
+            _wr    = _sqr.get("win_rate", 0)
+            _mdd   = _sqr.get("max_drawdown_r", 0)
+            _streak = _sqr.get("current_streak", 0)
+            _stype  = _sqr.get("current_streak_type", "")
+            _exp_c  = "#00c896" if _exp > 0 else "#ff4d6d"
+            _wr_c   = "#00c896" if _wr >= 0.5 else ("#f0b429" if _wr >= 0.4 else "#ff4d6d")
+            _mdd_c  = "#ff4d6d" if abs(_mdd) > 3 else ("#f0b429" if abs(_mdd) > 1.5 else "#00c896")
+            _sk_c   = "#00c896" if _stype == "win" else "#ff4d6d"
+            _sk_label = f"{'W' if _stype=='win' else 'L'}{abs(int(_streak))}"
+            st.markdown(
+                f'<div style="display:flex;gap:16px;align-items:center;'
+                f'background:linear-gradient(90deg,rgba(139,92,246,0.08),rgba(16,185,129,0.05));'
+                f'border:1px solid rgba(139,92,246,0.15);border-radius:8px;padding:8px 14px;'
+                f'margin-bottom:12px;flex-wrap:wrap;">'
+                f'<span style="font-size:0.58rem;font-weight:700;color:#6366f1;text-transform:uppercase;'
+                f'letter-spacing:0.08em;white-space:nowrap;">30-Day System</span>'
+                f'<span style="font-size:0.7rem;color:#94a3b8;">Expectancy: '
+                f'<b style="color:{_exp_c};">{_exp:+.2f}R</b></span>'
+                f'<span style="font-size:0.7rem;color:#94a3b8;">Win Rate: '
+                f'<b style="color:{_wr_c};">{_wr*100:.0f}%</b></span>'
+                f'<span style="font-size:0.7rem;color:#94a3b8;">Max DD: '
+                f'<b style="color:{_mdd_c};">{_mdd:.1f}R</b></span>'
+                f'<span style="font-size:0.7rem;color:#94a3b8;">Streak: '
+                f'<b style="color:{_sk_c};">{_sk_label}</b></span>'
+                f'<span style="font-size:0.62rem;color:#475569;">{len(_sq_closed)} trades</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     # ── Market Pulse ───────────────────────────────────────────────────────────
     indices = _hero_indices()
 
