@@ -494,3 +494,82 @@ def send_derivatives_morning_brief() -> bool:
     except Exception as exc:
         logger.error("send_derivatives_morning_brief failed: %s", exc)
         return False
+
+
+def send_daily_performance_summary() -> bool:
+    """
+    Sends a daily post-market performance summary to Telegram.
+    Includes: closed trades today, win/loss, P&L in R, expectancy, portfolio heat.
+    Designed to run at 4:30 PM after outcome tracker resolves positions.
+    """
+    if not is_configured():
+        return False
+    try:
+        import datetime
+        from signals.signal_logger import get_signal_logger
+        from analysis.signal_quality import full_report
+
+        log = get_signal_logger()
+        all_signals = log.get_signals(days_back=30)
+        today = datetime.date.today().isoformat()
+
+        closed_today = [
+            s for s in all_signals
+            if s.get("outcome") not in ("OPEN", None)
+            and (s.get("outcome_at") or "")[:10] == today
+        ]
+
+        if not closed_today:
+            logger.info("No trades closed today — skipping performance summary.")
+            return False
+
+        n_today  = len(closed_today)
+        wins     = [s for s in closed_today if s.get("net_pnl_r", 0) and float(s["net_pnl_r"]) > 0]
+        losses   = [s for s in closed_today if s.get("net_pnl_r", 0) and float(s["net_pnl_r"]) <= 0]
+        total_r  = sum(float(s.get("net_pnl_r") or 0) for s in closed_today)
+        win_rate = len(wins) / n_today * 100 if n_today > 0 else 0
+
+        report = full_report(all_signals)
+        expectancy = report.get("expectancy")
+        sharpe_r   = report.get("sharpe_r")
+        max_dd     = report.get("max_drawdown_r")
+
+        emoji_overall = "🟢" if total_r > 0 else "🔴"
+
+        lines = [
+            f"<b>📊 NiftyEdge Daily Performance · {today}</b>",
+            "",
+            f"{emoji_overall} <b>Closed today:</b> {n_today} trades",
+            f"  ✅ Wins: {len(wins)} | ❌ Losses: {len(losses)}",
+            f"  📈 Win rate: {win_rate:.0f}%",
+            f"  💰 Total P&L: <b>{total_r:+.2f}R</b>",
+            "",
+        ]
+
+        for s in closed_today:
+            r = float(s.get("net_pnl_r") or 0)
+            icon = "✅" if r > 0 else "❌"
+            outcome_short = (s.get("outcome") or "").replace("_", " ").title()
+            lines.append(
+                f"  {icon} {s['ticker'].replace('.NS','')} ({s.get('direction','')}) "
+                f"{r:+.2f}R — {outcome_short}"
+            )
+
+        lines += [
+            "",
+            f"<b>30-Day System Stats:</b>",
+            f"  Expectancy: {expectancy:+.3f}R/trade" if expectancy is not None else "  Expectancy: —",
+            f"  Sharpe-R: {sharpe_r:.2f}" if sharpe_r is not None else "  Sharpe-R: —",
+            f"  Max DD: {max_dd:.2f}R" if max_dd is not None else "  Max DD: —",
+            "",
+            f"<i>NiftyEdge · stockscreener4.streamlit.app</i>",
+        ]
+
+        msg = "\n".join(lines)
+        ok = send_message(msg)
+        if ok:
+            logger.info("Daily performance summary sent to Telegram.")
+        return ok
+    except Exception as exc:
+        logger.error("send_daily_performance_summary failed: %s", exc)
+        return False

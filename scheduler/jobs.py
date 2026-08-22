@@ -217,7 +217,7 @@ def run_post_market_scan():
 
 
 def run_outcome_tracker():
-    """4:30 PM IST — Resolve open signal outcomes against today's price data."""
+    """4:30 PM IST — Resolve open signal outcomes, then send daily performance summary."""
     if not is_trading_day():
         return
     logger.info(f"[{datetime.now(IST)}] Running outcome tracker...")
@@ -227,6 +227,11 @@ def run_outcome_tracker():
         logger.info(f"Outcome tracker done. {resolved} signal(s) resolved.")
     except Exception as e:
         logger.error(f"Outcome tracker failed: {e}")
+    try:
+        from notifications.telegram import send_daily_performance_summary
+        send_daily_performance_summary()
+    except Exception as e:
+        logger.error(f"Daily performance summary failed: {e}")
 
 
 def build_scheduler() -> BackgroundScheduler:
