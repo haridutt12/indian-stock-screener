@@ -9,6 +9,7 @@ Rates current as of 2024-25 (NSE, discount broker / flat-fee model):
   SEBI charges    : 0.0001% of turnover  (₹10 per crore)
   Stamp duty      : Intraday 0.003% buy-side | Delivery 0.015% buy-side
   GST             : 18% on (brokerage + exchange + SEBI)
+  Slippage        : 0.15% per leg (bid-ask spread + market impact) — configurable
 
 Default position size ₹1,00,000 (₹1 lakh) — change via POSITION_SIZE_INR in config.
 
@@ -48,6 +49,10 @@ STAMP_DELIVERY_BUY: float = 0.00015   # 0.015 % — buy side only
 # GST on brokerage + exchange + SEBI
 GST_RATE: float = 0.18
 
+# Market impact / bid-ask slippage per leg (buy + sell).
+# 0.15 % per leg is conservative for Nifty 50 liquid names; wider for mid-caps.
+DEFAULT_SLIPPAGE_RATE: float = 0.0015
+
 
 def compute_trade_cost(
     entry_price: float,
@@ -56,6 +61,7 @@ def compute_trade_cost(
     timeframe: str,                      # "INTRADAY" or "SWING"
     position_size_inr: float = DEFAULT_POSITION_SIZE_INR,
     stop_loss: float | None = None,      # used to express net_pnl in R-multiples
+    slippage_rate: float = DEFAULT_SLIPPAGE_RATE,  # per-leg; 0 to disable
 ) -> dict:
     """
     Compute a full cost breakdown and net P&L for a round-trip trade.
@@ -115,8 +121,11 @@ def compute_trade_cost(
     # ── GST (18 % on brokerage + exchange + SEBI) ─────────────────────────────
     gst = GST_RATE * (brokerage + exchange_charges + sebi_charges)
 
+    # ── Slippage (bid-ask spread + market impact, both legs) ──────────────────
+    slippage = slippage_rate * (entry_value + exit_value)
+
     # ── Totals ────────────────────────────────────────────────────────────────
-    cost_total = brokerage + stt + exchange_charges + stamp_duty + sebi_charges + gst
+    cost_total = brokerage + stt + exchange_charges + stamp_duty + sebi_charges + gst + slippage
 
     # ── Gross P&L ─────────────────────────────────────────────────────────────
     if direction == "LONG":
@@ -142,6 +151,7 @@ def compute_trade_cost(
         "stamp_duty_inr":      round(stamp_duty, 2),
         "sebi_charges_inr":    round(sebi_charges, 4),
         "gst_inr":             round(gst, 2),
+        "slippage_inr":        round(slippage, 2),
         "cost_total_inr":      round(cost_total, 2),
         "cost_total_pct":      round(cost_total / entry_value * 100, 4),
         # P&L
@@ -160,6 +170,7 @@ def _zero_cost(position_size_inr: float) -> dict:
         "brokerage_inr": 0.0, "stt_inr": 0.0,
         "exchange_charges_inr": 0.0, "stamp_duty_inr": 0.0,
         "sebi_charges_inr": 0.0, "gst_inr": 0.0,
+        "slippage_inr": 0.0,
         "cost_total_inr": 0.0, "cost_total_pct": 0.0,
         "qty": 0.0, "position_size_inr": position_size_inr,
         "gross_pnl_inr": 0.0, "net_pnl_inr": 0.0,

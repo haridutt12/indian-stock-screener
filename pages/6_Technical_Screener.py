@@ -16,6 +16,57 @@ auth_guard()
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────────────────────
 page_header("📈 Technical Screener", subtitle="NSE · Equity · Technical Analysis")
 
+# ── NL QUERY BAR ─────────────────────────────────────────────────────────────
+from analysis.nl_screener import parse_nl_query, apply_nl_filters
+
+st.markdown(
+    '<div style="font-size:0.68rem;font-weight:700;color:#475569;'
+    'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Ask in Plain English</div>',
+    unsafe_allow_html=True,
+)
+_nl_col, _nl_btn_col = st.columns([5, 1])
+with _nl_col:
+    nl_input = st.text_input(
+        "nl_query",
+        value=st.session_state.get("_nl_query_val", ""),
+        placeholder='e.g. "show me oversold quality stocks above 200 SMA with volume spike"',
+        label_visibility="collapsed",
+        key="_nl_input_field",
+    )
+with _nl_btn_col:
+    nl_run = st.button("✨ Ask AI", type="primary", use_container_width=True)
+
+if nl_run and nl_input.strip():
+    st.session_state["_nl_query_val"] = nl_input.strip()
+    with st.spinner("Interpreting your query…"):
+        _nl_parsed = parse_nl_query(nl_input.strip())
+    st.session_state["_nl_parsed"] = _nl_parsed
+    # Clear any previous manual scan results so the NL filters apply to fresh data
+    st.session_state.pop("tech_result_df", None)
+
+_nl_parsed = st.session_state.get("_nl_parsed")
+if _nl_parsed:
+    _err = _nl_parsed.get("error")
+    _summary = _nl_parsed.get("summary", "")
+    with st.expander("🔍 Interpreted as…", expanded=True):
+        st.markdown(
+            f'<div style="color:#00c896;font-size:0.85rem;font-weight:600;margin-bottom:8px;">'
+            f'{_summary}</div>',
+            unsafe_allow_html=True,
+        )
+        _flt_html = "".join([
+            f'<span style="background:rgba(124,131,253,0.12);color:#7c83fd;'
+            f'border-radius:5px;padding:2px 8px;font-size:0.72rem;font-weight:600;margin-right:4px;">'
+            f'{f["column"]} {f["operator"]} {f["value"]}</span>'
+            for f in _nl_parsed.get("filters", [])
+        ])
+        if _flt_html:
+            st.markdown(_flt_html, unsafe_allow_html=True)
+        if _err:
+            st.warning(f"Some filters skipped: {_err}")
+
+st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
 # ── SIDEBAR ────────────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Technical Filters")
@@ -185,8 +236,13 @@ if "tech_result_df" not in st.session_state:
 
 result_df = st.session_state.tech_result_df.copy()
 
-# Apply preset filters
-if run_oversold:
+# Apply NL filters if present (takes precedence over preset buttons)
+_nl_active = bool(_nl_parsed and _nl_parsed.get("filters") and not run_btn
+                  and not run_oversold and not run_breakout
+                  and not run_golden and not run_momentum)
+if _nl_active:
+    result_df = apply_nl_filters(result_df, _nl_parsed)
+elif run_oversold:
     result_df = result_df[result_df["rsi"].notna() & (result_df["rsi"] < 35)]
 elif run_breakout:
     result_df = result_df[result_df["above_sma200"] & result_df["vol_spike"]]

@@ -53,8 +53,22 @@ def test_cost_components_sum_to_total():
     component_sum = (
         r["brokerage_inr"] + r["stt_inr"] + r["exchange_charges_inr"]
         + r["stamp_duty_inr"] + r["sebi_charges_inr"] + r["gst_inr"]
+        + r["slippage_inr"]
     )
     assert abs(component_sum - r["cost_total_inr"]) < 0.01
+
+
+def test_zero_slippage_is_lower_than_default():
+    r_default  = compute_trade_cost(100.0, 105.0, "LONG", "SWING")
+    r_no_slip  = compute_trade_cost(100.0, 105.0, "LONG", "SWING", slippage_rate=0.0)
+    assert r_default["cost_total_inr"] > r_no_slip["cost_total_inr"]
+    assert r_no_slip["slippage_inr"] == 0.0
+
+
+def test_slippage_present_in_zero_entry_result():
+    r = compute_trade_cost(0.0, 100.0, "LONG", "SWING")
+    assert "slippage_inr" in r
+    assert r["slippage_inr"] == 0.0
 
 
 def test_default_position_size_used():
