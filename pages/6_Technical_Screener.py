@@ -18,6 +18,7 @@ page_header("📈 Technical Screener", subtitle="NSE · Equity · Technical Anal
 
 # ── NL QUERY BAR ─────────────────────────────────────────────────────────────
 from analysis.nl_screener import parse_nl_query, apply_nl_filters
+from ui.llm_guard import llm_guard, record_llm_tokens
 
 st.markdown(
     '<div style="font-size:0.68rem;font-weight:700;color:#475569;'
@@ -38,9 +39,11 @@ with _nl_btn_col:
 
 if nl_run and nl_input.strip():
     st.session_state["_nl_query_val"] = nl_input.strip()
-    with st.spinner("Interpreting your query…"):
-        _nl_parsed = parse_nl_query(nl_input.strip())
-    st.session_state["_nl_parsed"] = _nl_parsed
+    if llm_guard(estimated_tokens=600, label="NL Screener"):
+        with st.spinner("Interpreting your query…"):
+            _nl_parsed = parse_nl_query(nl_input.strip())
+        record_llm_tokens(600)
+        st.session_state["_nl_parsed"] = _nl_parsed
     # Clear any previous manual scan results so the NL filters apply to fresh data
     st.session_state.pop("tech_result_df", None)
 

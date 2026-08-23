@@ -15,6 +15,7 @@ from analysis.quant_critic import (
 )
 from ui.styles import page_header, auth_guard, user_sidebar
 from ui.components import research_disclaimer
+from ui.llm_guard import llm_guard, record_llm_tokens
 
 st.set_page_config(page_title="Quant Critic · NiftyEdge", layout="wide", page_icon="🔬")
 from ui.styles import inject_global_css; inject_global_css()
@@ -144,9 +145,12 @@ def _cached_critique(fp: str, _metrics: dict) -> str:
 with st.expander("🤖 AI Critic Verdict", expanded=True):
     if n_closed < 10:
         st.warning("Fewer than 10 closed signals — AI critique skipped (not meaningful at this sample size).")
+    elif not llm_guard(estimated_tokens=1100, label="AI Quant Critic"):
+        pass  # guard rendered the blocked message
     else:
         with st.spinner("Asking the AI Critic…"):
             critique = _cached_critique(fp, metrics)
+        record_llm_tokens(1100)
         st.markdown(critique)
         st.caption(f"Cached verdict · fingerprint `{fp}` · refreshes every 30 min")
 

@@ -778,3 +778,9 @@ def user_sidebar() -> None:
     )
     if st.button("Sign out", key="ne_signout"):
         st.logout()
+
+    try:
+        from ui.llm_guard import llm_usage_badge
+        llm_usage_badge()
+    except Exception:
+        pass
