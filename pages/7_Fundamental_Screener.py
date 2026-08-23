@@ -57,7 +57,7 @@ with st.sidebar:
     sort_col = sort_options[sort_by_label]
     sort_asc = st.checkbox("Ascending", value=False)
 
-    run_btn = st.button("🔍 Run Screener", type="primary", width="stretch")
+    run_btn = st.button("🔍 Run Screener", type="primary", use_container_width=True)
 
     st.divider()
     user_sidebar()

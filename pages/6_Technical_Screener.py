@@ -44,8 +44,6 @@ if nl_run and nl_input.strip():
             _nl_parsed = parse_nl_query(nl_input.strip())
         record_llm_tokens(600)
         st.session_state["_nl_parsed"] = _nl_parsed
-    # Clear any previous manual scan results so the NL filters apply to fresh data
-    st.session_state.pop("tech_result_df", None)
 
 _nl_parsed = st.session_state.get("_nl_parsed")
 if _nl_parsed:
@@ -101,7 +99,7 @@ with st.sidebar:
     sort_by  = st.selectbox("Sort", ["tech_strength", "rsi", "volume_ratio"])
     sort_asc = st.checkbox("Ascending", value=False)
 
-    run_btn = st.button("📈 Run Technical Scan", type="primary", width="stretch")
+    run_btn = st.button("📈 Run Technical Scan", type="primary", use_container_width=True)
 
     st.divider()
     user_sidebar()
@@ -235,6 +233,8 @@ if should_run:
     st.session_state.tech_result_df = pd.DataFrame(rows)
 
 if "tech_result_df" not in st.session_state:
+    if _nl_parsed and _nl_parsed.get("filters"):
+        st.info("Query interpreted. Now click **Run Technical Scan** (or a preset) to apply it to live data.", icon="ℹ️")
     st.stop()
 
 result_df = st.session_state.tech_result_df.copy()

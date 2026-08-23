@@ -49,9 +49,8 @@ with st.sidebar:
 # ── LOAD SIGNALS ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_signals(days_back: int, timeframe: str, strategy: str) -> list[dict]:
-    raw = get_signal_logger().get_signals(days_back=days_back, include_open=True)
-    if timeframe != "All":
-        raw = [s for s in raw if s.get("timeframe") == timeframe]
+    tf  = None if timeframe == "All" else timeframe
+    raw = get_signal_logger().get_signals(days_back=days_back, timeframe=tf)
     if strategy.strip():
         raw = [s for s in raw if strategy.strip().lower() in (s.get("strategy") or "").lower()]
     return raw
@@ -150,7 +149,11 @@ with st.expander("🤖 AI Critic Verdict", expanded=True):
     else:
         with st.spinner("Asking the AI Critic…"):
             critique = _cached_critique(fp, metrics)
-        record_llm_tokens(1100)
+        # Only count tokens once per unique fingerprint (not on every page rerun)
+        _counted_key = f"_llm_counted_{fp}"
+        if not st.session_state.get(_counted_key):
+            record_llm_tokens(1100)
+            st.session_state[_counted_key] = True
         st.markdown(critique)
         st.caption(f"Cached verdict · fingerprint `{fp}` · refreshes every 30 min")
 
