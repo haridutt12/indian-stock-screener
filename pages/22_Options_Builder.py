@@ -208,8 +208,8 @@ def _type_color(val):
 
 st.dataframe(
     pd.DataFrame(_leg_rows).style
-    .applymap(_action_color, subset=["Action"])
-    .applymap(_type_color,   subset=["Type"]),
+    .map(_action_color, subset=["Action"])
+    .map(_type_color,   subset=["Type"]),
     use_container_width=True, hide_index=True,
 )
 

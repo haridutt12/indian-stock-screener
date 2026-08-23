@@ -202,7 +202,7 @@ if _heat:
             return "color: #00c896; font-weight: 700;" if val == "LONG" else "color: #ff4d6d; font-weight: 700;"
 
         st.dataframe(
-            _ps_df.style.applymap(_dir_col, subset=["Direction"]),
+            _ps_df.style.map(_dir_col, subset=["Direction"]),
             use_container_width=True, hide_index=True,
         )
 

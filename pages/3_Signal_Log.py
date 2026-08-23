@@ -580,7 +580,7 @@ with tab_live:
                 unsafe_allow_html=True,
             )
 
-            for sig in _open_filtered:
+            for _sig_idx, sig in enumerate(_open_filtered):
                 ticker    = sig["ticker"]
                 entry     = sig["entry_price"]
                 stop      = sig["stop_loss"]
@@ -879,7 +879,7 @@ with tab_live:
                                     xaxis=dict(showgrid=False, rangeslider=dict(visible=False)),
                                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
                                 )
-                                st.plotly_chart(_cfig, use_container_width=True, config={"displayModeBar": False})
+                                st.plotly_chart(_cfig, use_container_width=True, config={"displayModeBar": False}, key=f"live_chart_{_sig_idx}_{sig.get('ticker','')}")
                             else:
                                 st.caption("Chart data unavailable.")
                         except Exception as _ce:
@@ -2069,8 +2069,8 @@ with tab_insights:
 
             _sb_styled = (
                 _sb_df.style
-                .applymap(_exp_color_str, subset=["Expectancy", "Total R"])
-                .applymap(_wr_color_str,  subset=["Win %"])
+                .map(_exp_color_str, subset=["Expectancy", "Total R"])
+                .map(_wr_color_str,  subset=["Win %"])
             )
             st.dataframe(_sb_styled, use_container_width=True, hide_index=True)
 

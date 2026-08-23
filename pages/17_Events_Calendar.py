@@ -294,8 +294,8 @@ def _dte_style(val):
 
 styled = (
     _tbl.style
-    .applymap(_type_style, subset=["Type"])
-    .applymap(_dte_style,  subset=["DTE"])
+    .map(_type_style, subset=["Type"])
+    .map(_dte_style,  subset=["DTE"])
 )
 st.dataframe(styled, use_container_width=True, hide_index=True)
 

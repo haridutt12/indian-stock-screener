@@ -689,7 +689,7 @@ with st.expander("🔢 Spot × IV Scenario Grid (What-if analysis)", expanded=Fa
         return "color: #94a3b8;"
 
     st.dataframe(
-        _sg_df.style.applymap(_color_pnl).format("₹{:+,}"),
+        _sg_df.style.map(_color_pnl).format("₹{:+,}"),
         use_container_width=True,
     )
     st.caption(

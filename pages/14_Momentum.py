@@ -235,9 +235,9 @@ def _rsi_color(val):
 
 styled = (
     _tbl.style
-    .applymap(_pct_color, subset=["1W %", "1M %", "3M %", "6M %", "1Y %", "From 52H %"])
-    .applymap(_trend_color, subset=["Trend Score"])
-    .applymap(_rsi_color, subset=["RSI"])
+    .map(_pct_color, subset=["1W %", "1M %", "3M %", "6M %", "1Y %", "From 52H %"])
+    .map(_trend_color, subset=["Trend Score"])
+    .map(_rsi_color, subset=["RSI"])
     .format({
         "Price": "₹{:,.2f}",
         "1W %":  "{:+.1f}%", "1M %": "{:+.1f}%", "3M %": "{:+.1f}%",

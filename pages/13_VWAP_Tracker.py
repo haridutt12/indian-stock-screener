@@ -279,7 +279,7 @@ def _render_vwap():
                                        tickprefix="₹", tickfont=dict(size=9)),
                             hovermode="x unified",
                         )
-                        st.plotly_chart(fig_v, use_container_width=True)
+                        st.plotly_chart(fig_v, use_container_width=True, key=f"vwap_chart_{item['ticker']}")
 
 
 _render_vwap()

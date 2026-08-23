@@ -208,8 +208,8 @@ if _high_corr:
 
     styled_pairs = (
         _pair_df.style
-        .applymap(_rho_color,  subset=["ρ"])
-        .applymap(_risk_color, subset=["Risk"])
+        .map(_rho_color,  subset=["ρ"])
+        .map(_risk_color, subset=["Risk"])
         .format({"ρ": "{:+.3f}"})
     )
     st.dataframe(styled_pairs, use_container_width=True, hide_index=True)

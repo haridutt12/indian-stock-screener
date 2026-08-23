@@ -313,11 +313,11 @@ def _rsi_color(val):
 
 styled = (
     _tbl.style
-    .applymap(_z_color,    subset=["Z-Score"])
-    .applymap(_bb_color,   subset=["BB%"])
-    .applymap(_bool_color, subset=["In Squeeze"] if "In Squeeze" in _tbl.columns else [])
-    .applymap(_vol_color,  subset=["Vol Surge"] if "Vol Surge" in _tbl.columns else [])
-    .applymap(_rsi_color,  subset=["RSI"] if "RSI" in _tbl.columns else [])
+    .map(_z_color,    subset=["Z-Score"])
+    .map(_bb_color,   subset=["BB%"])
+    .map(_bool_color, subset=["In Squeeze"] if "In Squeeze" in _tbl.columns else [])
+    .map(_vol_color,  subset=["Vol Surge"] if "Vol Surge" in _tbl.columns else [])
+    .map(_rsi_color,  subset=["RSI"] if "RSI" in _tbl.columns else [])
     .format({
         "Price":     "₹{:,.2f}",
         "Z-Score":   "{:+.2f}",

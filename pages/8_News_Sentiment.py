@@ -106,7 +106,7 @@ st.markdown(
     f'<div style="width:{score_pct}%;height:100%;'
     f'background:linear-gradient(90deg,rgba({s_rgb},0.4),{s_color});border-radius:3px;"></div>'
     f'</div>'
-    f'<div style="color:#475569;font-size:0.7rem;margin-top:4px;">{engine} · {len(news_items)} articles analysed</div>'
+    f'<div style="color:#475569;font-size:0.7rem;margin-top:4px;">{get_engine_name()} · {len(news_items)} articles analysed</div>'
     f'</div>'
     f'</div>'
 

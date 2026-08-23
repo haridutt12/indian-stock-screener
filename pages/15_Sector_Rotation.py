@@ -341,9 +341,9 @@ def _ratio_color(val):
 
 styled = (
     _tbl.style
-    .applymap(_q_color, subset=["Quadrant"])
-    .applymap(_ratio_color, subset=["RS-Ratio", "RS-Momentum"])
-    .applymap(_rs_color, subset=["RS 1W %", "RS 4W %", "RS 13W %"])
+    .map(_q_color, subset=["Quadrant"])
+    .map(_ratio_color, subset=["RS-Ratio", "RS-Momentum"])
+    .map(_rs_color, subset=["RS 1W %", "RS 4W %", "RS 13W %"])
     .format({
         "RS-Ratio":    "{:.1f}",
         "RS-Momentum": "{:.1f}",

@@ -417,8 +417,8 @@ def _dist_style(val):
 _display = _sr_df[["Strike", "Distance", "Call OI", "Put OI", "PCR", "Signal"]].copy()
 styled = (
     _display.style
-    .applymap(_sig_style, subset=["Signal"])
-    .applymap(_dist_style, subset=["Distance"])
+    .map(_sig_style, subset=["Signal"])
+    .map(_dist_style, subset=["Distance"])
 )
 st.dataframe(styled, use_container_width=True, hide_index=True)
 
