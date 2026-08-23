@@ -115,32 +115,42 @@ except Exception:
 _catchup_signals()
 
 pg = st.navigation(
-    [
-        st.Page("home.py",                          title="Home",                 icon="🏠", default=True),
-        st.Page("pages/1_Market_Overview.py",       title="Market Overview",      icon="📊"),
-        st.Page("pages/2_Smart_Money.py",           title="Smart Money",          icon="💰"),
-        st.Page("pages/3_Signal_Log.py",            title="Signal Log",           icon="📋"),
-        st.Page("pages/4_Swing_Trades.py",          title="Swing Trades",         icon="📈"),
-        st.Page("pages/5_Intraday_Ideas.py",        title="Intraday Ideas",       icon="⚡"),
-        st.Page("pages/6_Technical_Screener.py",    title="Technical Screener",   icon="🔍"),
-        st.Page("pages/7_Fundamental_Screener.py",  title="Fundamental Screener", icon="📊"),
-        st.Page("pages/8_News_Sentiment.py",        title="News & Sentiment",     icon="📰"),
-        st.Page("pages/9_Tip_Analyzer.py",          title="Tip Analyzer",         icon="🛡️"),
-        st.Page("pages/10_AI_Analyst.py",           title="AI Analyst",           icon="🤖"),
-        st.Page("pages/11_Portfolio_Health.py",     title="Portfolio Health",     icon="📊"),
-        st.Page("pages/12_Derivatives.py",          title="Derivatives Hub",      icon="📐"),
-        st.Page("pages/13_VWAP_Tracker.py",         title="VWAP Tracker",         icon="📡"),
-        st.Page("pages/14_Momentum.py",             title="Momentum Screener",    icon="🏎️"),
-        st.Page("pages/15_Sector_Rotation.py",      title="Sector Rotation",       icon="🔄"),
-        st.Page("pages/16_OI_Analytics.py",         title="OI Analytics",          icon="📊"),
-        st.Page("pages/17_Events_Calendar.py",      title="Events Calendar",       icon="📅"),
-        st.Page("pages/18_Stat_Screener.py",        title="Stat Screener",         icon="📐"),
-        st.Page("pages/19_Correlation.py",          title="Correlation Matrix",    icon="🔗"),
-        st.Page("pages/20_Risk_Dashboard.py",       title="Risk Dashboard",        icon="🛡️"),
-        st.Page("pages/21_Breadth.py",              title="Breadth Analytics",     icon="📡"),
-        st.Page("pages/22_Options_Builder.py",      title="Options Builder",        icon="🏗️"),
-        st.Page("pages/23_Quant_Critic.py",         title="Quant Critic",           icon="🔬"),
-    ],
+    {
+        "": [
+            st.Page("home.py", title="Home", icon="🏠", default=True),
+        ],
+        "Signals": [
+            st.Page("pages/4_Swing_Trades.py",   title="Swing Trades",   icon="📈"),
+            st.Page("pages/5_Intraday_Ideas.py", title="Intraday Ideas", icon="⚡"),
+            st.Page("pages/3_Signal_Log.py",     title="Signal Log",     icon="📋"),
+            st.Page("pages/23_Quant_Critic.py",  title="Quant Critic",   icon="🔬"),
+        ],
+        "Screeners": [
+            st.Page("pages/6_Technical_Screener.py",   title="Technical",    icon="🔍"),
+            st.Page("pages/7_Fundamental_Screener.py", title="Fundamental",  icon="📊"),
+            st.Page("pages/14_Momentum.py",            title="Momentum",     icon="🏎️"),
+            st.Page("pages/18_Stat_Screener.py",       title="Statistical",  icon="📐"),
+            st.Page("pages/21_Breadth.py",             title="Breadth",      icon="📡"),
+        ],
+        "Market Intel": [
+            st.Page("pages/1_Market_Overview.py",  title="Market Overview",  icon="📊"),
+            st.Page("pages/2_Smart_Money.py",      title="Smart Money",      icon="💰"),
+            st.Page("pages/8_News_Sentiment.py",   title="News & Sentiment", icon="📰"),
+            st.Page("pages/15_Sector_Rotation.py", title="Sector Rotation",  icon="🔄"),
+            st.Page("pages/17_Events_Calendar.py", title="Events Calendar",  icon="📅"),
+            st.Page("pages/19_Correlation.py",     title="Correlation",      icon="🔗"),
+        ],
+        "Analysis": [
+            st.Page("pages/10_AI_Analyst.py",      title="AI Analyst",      icon="🤖"),
+            st.Page("pages/9_Tip_Analyzer.py",     title="Tip Analyzer",    icon="🛡️"),
+            st.Page("pages/11_Portfolio_Health.py", title="Portfolio Health", icon="💼"),
+            st.Page("pages/20_Risk_Dashboard.py",  title="Risk Dashboard",  icon="🛡️"),
+            st.Page("pages/12_Derivatives.py",     title="Derivatives Hub", icon="📐"),
+            st.Page("pages/13_VWAP_Tracker.py",    title="VWAP Tracker",    icon="📡"),
+            st.Page("pages/16_OI_Analytics.py",    title="OI Analytics",    icon="📊"),
+            st.Page("pages/22_Options_Builder.py", title="Options Builder", icon="🏗️"),
+        ],
+    },
     position="sidebar",
 )
 
