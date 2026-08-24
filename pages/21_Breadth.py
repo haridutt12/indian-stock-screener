@@ -285,8 +285,8 @@ _fig.add_trace(go.Bar(
     hovertemplate="Bar %{x}<br>Oscillator: %{y:.1f}<extra></extra>",
 ), row=2, col=1)
 _fig.add_hline(y=0,   line_color="rgba(255,255,255,0.15)", line_width=1, row=2, col=1)
-_fig.add_hline(y=100, line_color="#00c89633", line_width=1, line_dash="dot", row=2, col=1)
-_fig.add_hline(y=-100, line_color="#ff4d6d33", line_width=1, line_dash="dot", row=2, col=1)
+_fig.add_hline(y=100, line_color="rgba(0,200,150,0.2)", line_width=1, line_dash="dot", row=2, col=1)
+_fig.add_hline(y=-100, line_color="rgba(255,77,109,0.2)", line_width=1, line_dash="dot", row=2, col=1)
 
 # ── Row 3: McClellan Summation ────────────────────────────────────────────────
 _mclsum_vals = _bd["mcl_sum"].tolist()
@@ -334,9 +334,9 @@ for _s, _c, _lbl in [(_pct20, "#00c896", "Above SMA20"), (_pct50, "#3b82f6", "Ab
         hovertemplate=f"{_lbl}<br>Bar %{{x}}<br>%{{y:.1f}}%<extra></extra>",
     ))
 
-_fig_sma.add_hline(y=80, line_color="#00c89633", line_width=1, line_dash="dot",
+_fig_sma.add_hline(y=80, line_color="rgba(0,200,150,0.2)", line_width=1, line_dash="dot",
                    annotation_text="Overbought (80%)", annotation_font_color="#00c896", annotation_font_size=9)
-_fig_sma.add_hline(y=20, line_color="#ff4d6d33", line_width=1, line_dash="dot",
+_fig_sma.add_hline(y=20, line_color="rgba(255,77,109,0.2)", line_width=1, line_dash="dot",
                    annotation_text="Oversold (20%)", annotation_font_color="#ff4d6d", annotation_font_size=9)
 _fig_sma.add_hline(y=50, line_color="rgba(255,255,255,0.1)", line_width=1)
 _fig_sma.update_layout(
