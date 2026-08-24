@@ -263,8 +263,8 @@ for i, (ai, bi, _) in enumerate(_top5_pairs):
             ))
 
 _fig_roll.add_hline(y=0,  line_color="rgba(255,255,255,0.15)", line_width=1)
-_fig_roll.add_hline(y=0.7,  line_color="#ff4d6d33", line_width=1, line_dash="dot")
-_fig_roll.add_hline(y=-0.7, line_color="#00c89633", line_width=1, line_dash="dot")
+_fig_roll.add_hline(y=0.7,  line_color="rgba(255,77,109,0.2)", line_width=1, line_dash="dot")
+_fig_roll.add_hline(y=-0.7, line_color="rgba(0,200,150,0.2)", line_width=1, line_dash="dot")
 _fig_roll.update_layout(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Inter, sans-serif", color="#94a3b8", size=10),
@@ -308,10 +308,10 @@ _fig_div = go.Figure(go.Bar(
     textfont=dict(size=9, color="#e2e8f0"),
     hovertemplate="%{y}<br>Avg |ρ|: %{x:.3f}<extra></extra>",
 ))
-_fig_div.add_vline(x=0.4, line_color="#00c89644", line_width=1, line_dash="dot",
+_fig_div.add_vline(x=0.4, line_color="rgba(0,200,150,0.27)", line_width=1, line_dash="dot",
                    annotation_text="Diversifier threshold", annotation_font_color="#00c896",
                    annotation_font_size=9)
-_fig_div.add_vline(x=0.6, line_color="#ff4d6d44", line_width=1, line_dash="dot",
+_fig_div.add_vline(x=0.6, line_color="rgba(255,77,109,0.27)", line_width=1, line_dash="dot",
                    annotation_text="Concentrated threshold", annotation_font_color="#ff4d6d",
                    annotation_font_size=9)
 _fig_div.update_layout(

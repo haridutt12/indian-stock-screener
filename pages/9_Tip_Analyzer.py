@@ -372,7 +372,7 @@ with st.expander(f"📊 3-Month Price Chart: {ticker}", expanded=False):
                 low=df_chart["Low"],  close=df_chart["Close"],
                 name=ticker,
                 increasing_line_color="#00c896", decreasing_line_color="#ff4d6d",
-                increasing_fillcolor="#00c89666", decreasing_fillcolor="#ff4d6d66",
+                increasing_fillcolor="rgba(0,200,150,0.4)", decreasing_fillcolor="rgba(255,77,109,0.4)",
             ))
 
             # Overlay tip levels

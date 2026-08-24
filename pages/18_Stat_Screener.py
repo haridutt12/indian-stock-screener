@@ -348,8 +348,8 @@ if "Z-Score" in _result.columns and not _result.empty:
         hovertemplate="%{y}<br>Z-Score: %{x:+.2f}σ<extra></extra>",
     ))
     _fig_bar.add_vline(x=0, line_color="rgba(255,255,255,0.2)", line_width=1)
-    _fig_bar.add_vline(x=_z_thresh,  line_color="#ff4d6d33", line_width=1, line_dash="dot")
-    _fig_bar.add_vline(x=-_z_thresh, line_color="#00c89633", line_width=1, line_dash="dot")
+    _fig_bar.add_vline(x=_z_thresh,  line_color="rgba(255,77,109,0.2)", line_width=1, line_dash="dot")
+    _fig_bar.add_vline(x=-_z_thresh, line_color="rgba(0,200,150,0.2)", line_width=1, line_dash="dot")
     _fig_bar.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter, sans-serif", color="#94a3b8", size=10),
