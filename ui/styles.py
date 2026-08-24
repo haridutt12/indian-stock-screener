@@ -784,3 +784,15 @@ def user_sidebar() -> None:
         llm_usage_badge()
     except Exception:
         pass
+
+
+def _get_admin_email() -> str:
+    """Return the administrator email from secrets or env. Used by Admin Panel."""
+    import os
+    try:
+        val = st.secrets.get("ADMIN_EMAIL", "")
+        if val:
+            return str(val).strip().lower()
+    except Exception:
+        pass
+    return os.environ.get("ADMIN_EMAIL", "").strip().lower()
