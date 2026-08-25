@@ -14,3 +14,5 @@ vaderSentiment>=3.3.2
 psycopg2-binary>=2.9
 authlib>=1.3
 httpx>=0.27
+jugaad-trader>=2.1
+dhanhq>=1.3

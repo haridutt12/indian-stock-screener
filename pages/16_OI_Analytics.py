@@ -42,23 +42,88 @@ cfg = INDEX_CONFIG[_index_name]
 
 import requests
 
-_NSE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://www.nseindia.com/",
-    "Connection": "keep-alive",
-}
-
 _NSE_SYMBOL_MAP = {
     "Nifty 50":   "NIFTY",
     "Bank Nifty": "BANKNIFTY",
 }
+
+# Dhan scrip IDs for index options
+_DHAN_SCRIP_MAP = {
+    "Nifty 50":   13,
+    "Bank Nifty": 25,
+}
+
+_INIT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
+
+_API_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": "https://www.nseindia.com/option-chain",
+}
+
+
+def _parse_nse_payload(payload: dict, nearest_expiry: str | None = None) -> dict | None:
+    """Convert raw NSE API JSON into the standard {expiry, calls, puts, spot} dict."""
+    records = payload.get("records", {})
+    spot = float(records.get("underlyingValue", 0)) or None
+    expiry_dates = records.get("expiryDates", [])
+    if not expiry_dates or not spot:
+        return None
+    expiry = nearest_expiry or expiry_dates[0]
+    rows = [r for r in records.get("data", []) if r.get("expiryDate") == expiry]
+    call_rows, put_rows = [], []
+    for r in rows:
+        k = float(r["strikePrice"])
+        if "CE" in r:
+            ce = r["CE"]
+            call_rows.append({
+                "strike": k,
+                "openInterest": ce.get("openInterest", 0),
+                "changeinOpenInterest": ce.get("changeinOpenInterest", 0),
+                "volume": ce.get("totalTradedVolume", 0),
+                "impliedVolatility": ce.get("impliedVolatility", 0) / 100.0,
+                "lastPrice": ce.get("lastPrice", 0),
+            })
+        if "PE" in r:
+            pe = r["PE"]
+            put_rows.append({
+                "strike": k,
+                "openInterest": pe.get("openInterest", 0),
+                "changeinOpenInterest": pe.get("changeinOpenInterest", 0),
+                "volume": pe.get("totalTradedVolume", 0),
+                "impliedVolatility": pe.get("impliedVolatility", 0) / 100.0,
+                "lastPrice": pe.get("lastPrice", 0),
+            })
+    if not call_rows or not put_rows:
+        return None
+    return {
+        "expiry": expiry,
+        "calls": pd.DataFrame(call_rows),
+        "puts": pd.DataFrame(put_rows),
+        "spot": spot,
+    }
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -72,88 +137,128 @@ def _fetch_spot(ticker: str) -> float | None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _fetch_nse_chain(index_name: str) -> dict | None:
-    """Fetch live options chain from NSE India public API."""
+def _fetch_via_jugaad(index_name: str) -> dict | None:
+    """Tier 1: jugaad-trader NSELive — handles cloud IP restrictions via persistent sessions."""
+    symbol = _NSE_SYMBOL_MAP.get(index_name)
+    if not symbol:
+        return None
+    try:
+        from jugaad_trader.nse import NSELive
+        nse = NSELive()
+        chain = nse.live_option_chain(symbol)
+        # jugaad returns the same structure as NSE API
+        if isinstance(chain, dict) and "records" in chain:
+            return _parse_nse_payload(chain)
+        return None
+    except Exception as exc:
+        logger.warning("jugaad-trader fetch failed for %s: %s", index_name, exc)
+        return None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_via_nse_api(index_name: str) -> dict | None:
+    """Tier 2: Direct NSE API with full browser fingerprint."""
     symbol = _NSE_SYMBOL_MAP.get(index_name)
     if not symbol:
         return None
     try:
         session = requests.Session()
-        session.get("https://www.nseindia.com", headers=_NSE_HEADERS, timeout=10)
+        session.get("https://www.nseindia.com", headers=_INIT_HEADERS, timeout=10)
+        session.get("https://www.nseindia.com/option-chain", headers=_INIT_HEADERS, timeout=10)
         url  = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-        resp = session.get(url, headers=_NSE_HEADERS, timeout=15)
+        resp = session.get(url, headers=_API_HEADERS, timeout=15)
         resp.raise_for_status()
-        payload = resp.json()
-
-        records = payload.get("records", {})
-        spot    = float(records.get("underlyingValue", 0)) or None
-        expiry_dates = records.get("expiryDates", [])
-        if not expiry_dates or not spot:
-            return None
-
-        nearest_expiry = expiry_dates[0]
-        rows = [r for r in records.get("data", []) if r.get("expiryDate") == nearest_expiry]
-
-        call_rows, put_rows = [], []
-        for r in rows:
-            k = float(r["strikePrice"])
-            if "CE" in r:
-                ce = r["CE"]
-                call_rows.append({
-                    "strike":            k,
-                    "openInterest":      ce.get("openInterest", 0),
-                    "changeinOpenInterest": ce.get("changeinOpenInterest", 0),
-                    "volume":            ce.get("totalTradedVolume", 0),
-                    "impliedVolatility": ce.get("impliedVolatility", 0) / 100.0,
-                    "lastPrice":         ce.get("lastPrice", 0),
-                })
-            if "PE" in r:
-                pe = r["PE"]
-                put_rows.append({
-                    "strike":            k,
-                    "openInterest":      pe.get("openInterest", 0),
-                    "changeinOpenInterest": pe.get("changeinOpenInterest", 0),
-                    "volume":            pe.get("totalTradedVolume", 0),
-                    "impliedVolatility": pe.get("impliedVolatility", 0) / 100.0,
-                    "lastPrice":         pe.get("lastPrice", 0),
-                })
-
-        if not call_rows or not put_rows:
-            return None
-
-        return {
-            "expiry": nearest_expiry,
-            "calls":  pd.DataFrame(call_rows),
-            "puts":   pd.DataFrame(put_rows),
-            "spot":   spot,
-        }
+        return _parse_nse_payload(resp.json())
     except Exception as exc:
-        logger.warning("NSE API fetch failed for %s: %s", index_name, exc)
+        logger.warning("NSE direct API failed for %s: %s", index_name, exc)
         return None
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _fetch_options(index_name: str) -> dict | None:
-    """Primary: NSE API. Fallback: yfinance."""
-    nse_data = _fetch_nse_chain(index_name)
-    if nse_data:
-        return nse_data
+def _fetch_via_dhan(index_name: str) -> dict | None:
+    """Tier 3: Dhan HQ API — requires DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN in Streamlit secrets."""
+    try:
+        client_id    = st.secrets.get("DHAN_CLIENT_ID", "")
+        access_token = st.secrets.get("DHAN_ACCESS_TOKEN", "")
+        if not client_id or not access_token:
+            return None
+        scrip_id = _DHAN_SCRIP_MAP.get(index_name)
+        if not scrip_id:
+            return None
+        from dhanhq import dhanhq
+        dhan = dhanhq(client_id, access_token)
+        expiry_resp = dhan.expiry_list(scrip_id, "INDEX")
+        if not expiry_resp or expiry_resp.get("status") != "success":
+            return None
+        nearest_expiry = expiry_resp["data"][0]
+        chain_resp = dhan.option_chain(scrip_id, "INDEX", nearest_expiry)
+        if not chain_resp or chain_resp.get("status") != "success":
+            return None
+        data = chain_resp.get("data", {})
+        spot = float(data.get("underlyingSpot", 0)) or None
+        if not spot:
+            return None
+        call_rows, put_rows = [], []
+        for row in data.get("oc", []):
+            k = float(row.get("strikePrice", 0))
+            ce = row.get("callOption", {})
+            pe = row.get("putOption", {})
+            if ce:
+                call_rows.append({
+                    "strike": k,
+                    "openInterest": ce.get("openInterest", 0),
+                    "changeinOpenInterest": ce.get("changeInOI", 0),
+                    "volume": ce.get("volume", 0),
+                    "impliedVolatility": ce.get("impliedVolatility", 0) / 100.0,
+                    "lastPrice": ce.get("lastTradedPrice", 0),
+                })
+            if pe:
+                put_rows.append({
+                    "strike": k,
+                    "openInterest": pe.get("openInterest", 0),
+                    "changeinOpenInterest": pe.get("changeInOI", 0),
+                    "volume": pe.get("volume", 0),
+                    "impliedVolatility": pe.get("impliedVolatility", 0) / 100.0,
+                    "lastPrice": pe.get("lastTradedPrice", 0),
+                })
+        if not call_rows or not put_rows:
+            return None
+        return {
+            "expiry": nearest_expiry,
+            "calls": pd.DataFrame(call_rows),
+            "puts": pd.DataFrame(put_rows),
+            "spot": spot,
+        }
+    except Exception as exc:
+        logger.warning("Dhan API failed for %s: %s", index_name, exc)
+        return None
 
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_via_yfinance(index_name: str) -> dict | None:
+    """Tier 4: yfinance fallback."""
     _cfg = INDEX_CONFIG[index_name]
     spot = _fetch_spot(_cfg["ticker"])
     if spot is None:
         return None
-    candidates = [f"{_cfg['yf_ticker']}.NS", "^NSEI", "NIFTY.NS"]
-    for sym in candidates:
+    for sym in [f"{_cfg['yf_ticker']}.NS", "^NSEI", "NIFTY.NS"]:
         try:
             obj = yf.Ticker(sym)
             expiries = obj.options
             if expiries:
-                exp   = expiries[0]
-                chain = obj.option_chain(exp)
-                return {"expiry": exp, "calls": chain.calls, "puts": chain.puts, "spot": spot}
+                chain = obj.option_chain(expiries[0])
+                return {"expiry": expiries[0], "calls": chain.calls, "puts": chain.puts, "spot": spot}
         except Exception:
             continue
+    return None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_options(index_name: str) -> dict | None:
+    for fn in [_fetch_via_jugaad, _fetch_via_nse_api, _fetch_via_dhan, _fetch_via_yfinance]:
+        result = fn(index_name)
+        if result:
+            return result
     return None
 
 
@@ -198,14 +303,18 @@ def _compute_max_pain(calls: pd.DataFrame, puts: pd.DataFrame) -> float | None:
 
 
 with st.spinner(f"Fetching {_index_name} options chain…"):
-    spot = _fetch_spot(cfg["ticker"])
     data = _fetch_options(_index_name)
+    spot = data["spot"] if data else _fetch_spot(cfg["ticker"])
 
 _synthetic = False
 if data is None or spot is None:
+    _has_dhan = bool(st.secrets.get("DHAN_CLIENT_ID", ""))
     st.warning(
-        "Live options data unavailable (NSE API unreachable and yfinance fallback failed). "
-        "Showing a synthetic demonstration based on current spot price."
+        "Live options data unavailable — all sources failed (jugaad-trader, NSE API, yfinance). "
+        + ("" if _has_dhan else
+           "**Optional:** Add `DHAN_CLIENT_ID` + `DHAN_ACCESS_TOKEN` to Streamlit secrets for broker-backed real data. "
+           "Create a free account at [dhan.co](https://dhan.co) → API → Generate token.")
+        + " Showing synthetic demonstration based on current spot price."
     )
     _synthetic = True
     if spot is None:
