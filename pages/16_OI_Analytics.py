@@ -40,6 +40,27 @@ if not _run:
 cfg = INDEX_CONFIG[_index_name]
 
 
+import requests
+
+_NSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.nseindia.com/",
+    "Connection": "keep-alive",
+}
+
+_NSE_SYMBOL_MAP = {
+    "Nifty 50":   "NIFTY",
+    "Bank Nifty": "BANKNIFTY",
+}
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _fetch_spot(ticker: str) -> float | None:
     try:
@@ -51,45 +72,84 @@ def _fetch_spot(ticker: str) -> float | None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _fetch_options(index_name: str) -> dict | None:
-    """
-    Fetch options chain for the nearest expiry.
-    Returns dict: {expiry, calls, puts, spot} or None on failure.
-    """
-    _cfg = INDEX_CONFIG[index_name]
-    ticker_sym = _cfg["yf_ticker"]
-    yf_sym     = f"{ticker_sym}.NS"
-    spot       = _fetch_spot(_cfg["ticker"])
-    if spot is None:
+def _fetch_nse_chain(index_name: str) -> dict | None:
+    """Fetch live options chain from NSE India public API."""
+    symbol = _NSE_SYMBOL_MAP.get(index_name)
+    if not symbol:
         return None
     try:
-        yfobj   = yf.Ticker(yf_sym)
-        expiries = yfobj.options
-        if not expiries:
-            yfobj = yf.Ticker(f"^NS{ticker_sym[:4]}")
-            expiries = yfobj.options
-        if not expiries:
+        session = requests.Session()
+        session.get("https://www.nseindia.com", headers=_NSE_HEADERS, timeout=10)
+        url  = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+        resp = session.get(url, headers=_NSE_HEADERS, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+
+        records = payload.get("records", {})
+        spot    = float(records.get("underlyingValue", 0)) or None
+        expiry_dates = records.get("expiryDates", [])
+        if not expiry_dates or not spot:
             return None
-        expiry = expiries[0]
-        chain  = yfobj.option_chain(expiry)
-        return {"expiry": expiry, "calls": chain.calls, "puts": chain.puts, "spot": spot}
+
+        nearest_expiry = expiry_dates[0]
+        rows = [r for r in records.get("data", []) if r.get("expiryDate") == nearest_expiry]
+
+        call_rows, put_rows = [], []
+        for r in rows:
+            k = float(r["strikePrice"])
+            if "CE" in r:
+                ce = r["CE"]
+                call_rows.append({
+                    "strike":            k,
+                    "openInterest":      ce.get("openInterest", 0),
+                    "changeinOpenInterest": ce.get("changeinOpenInterest", 0),
+                    "volume":            ce.get("totalTradedVolume", 0),
+                    "impliedVolatility": ce.get("impliedVolatility", 0) / 100.0,
+                    "lastPrice":         ce.get("lastPrice", 0),
+                })
+            if "PE" in r:
+                pe = r["PE"]
+                put_rows.append({
+                    "strike":            k,
+                    "openInterest":      pe.get("openInterest", 0),
+                    "changeinOpenInterest": pe.get("changeinOpenInterest", 0),
+                    "volume":            pe.get("totalTradedVolume", 0),
+                    "impliedVolatility": pe.get("impliedVolatility", 0) / 100.0,
+                    "lastPrice":         pe.get("lastPrice", 0),
+                })
+
+        if not call_rows or not put_rows:
+            return None
+
+        return {
+            "expiry": nearest_expiry,
+            "calls":  pd.DataFrame(call_rows),
+            "puts":   pd.DataFrame(put_rows),
+            "spot":   spot,
+        }
     except Exception as exc:
-        logger.warning("OI fetch failed for %s: %s", index_name, exc)
+        logger.warning("NSE API fetch failed for %s: %s", index_name, exc)
         return None
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _fetch_nifty_options_fallback(spot: float, step: int, n_strikes: int) -> dict | None:
-    """
-    Try fetching Nifty options directly via ^NSEI or NIFTY50.NS.
-    Falls back through multiple ticker variants.
-    """
-    candidates = ["^NSEI", "NIFTY.NS", "NIFTY50.NS"]
+def _fetch_options(index_name: str) -> dict | None:
+    """Primary: NSE API. Fallback: yfinance."""
+    nse_data = _fetch_nse_chain(index_name)
+    if nse_data:
+        return nse_data
+
+    _cfg = INDEX_CONFIG[index_name]
+    spot = _fetch_spot(_cfg["ticker"])
+    if spot is None:
+        return None
+    candidates = [f"{_cfg['yf_ticker']}.NS", "^NSEI", "NIFTY.NS"]
     for sym in candidates:
         try:
             obj = yf.Ticker(sym)
-            if obj.options:
-                exp = obj.options[0]
+            expiries = obj.options
+            if expiries:
+                exp   = expiries[0]
                 chain = obj.option_chain(exp)
                 return {"expiry": exp, "calls": chain.calls, "puts": chain.puts, "spot": spot}
         except Exception:
@@ -139,17 +199,12 @@ def _compute_max_pain(calls: pd.DataFrame, puts: pd.DataFrame) -> float | None:
 
 with st.spinner(f"Fetching {_index_name} options chain…"):
     spot = _fetch_spot(cfg["ticker"])
-    data = _fetch_options(_index_name) if spot else None
+    data = _fetch_options(_index_name)
 
-# ── Fallback: if fetch fails, build synthetic OI demonstration from spot ─────
 _synthetic = False
-if data is None and spot is not None:
-    data = _fetch_nifty_options_fallback(spot, cfg["step"], _strikes_shown)
-
 if data is None or spot is None:
     st.warning(
-        "Options data unavailable via yfinance in this environment "
-        "(NSE options require direct internet — available on Streamlit Cloud). "
+        "Live options data unavailable (NSE API unreachable and yfinance fallback failed). "
         "Showing a synthetic demonstration based on current spot price."
     )
     _synthetic = True
@@ -469,5 +524,5 @@ Strike-level PCR < 0.7 → call sellers defending as resistance.
 
 st.caption(
     f"Universe: {_index_name} · Expiry: {expiry} · "
-    f"{'DEMO data (NSE options require live deployment)' if _synthetic else 'Data via yfinance · 15-min cache'}"
+    f"{'DEMO — live data unavailable' if _synthetic else 'Live data via NSE API · 15-min cache'}"
 )
