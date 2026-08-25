@@ -124,6 +124,7 @@ pg = st.navigation(
             st.Page("pages/5_Intraday_Ideas.py", title="Intraday Ideas", icon="⚡"),
             st.Page("pages/3_Signal_Log.py",     title="Signal Log",     icon="📋"),
             st.Page("pages/23_Quant_Critic.py",  title="Quant Critic",   icon="🔬"),
+            st.Page("pages/24_Backtest.py",      title="Backtest Builder", icon="⚗️"),
         ],
         "Screeners": [
             st.Page("pages/6_Technical_Screener.py",   title="Technical",    icon="🔍"),
