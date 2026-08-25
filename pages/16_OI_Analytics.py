@@ -137,21 +137,50 @@ def _fetch_spot(ticker: str) -> float | None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _fetch_via_jugaad(index_name: str) -> dict | None:
-    """Tier 1: jugaad-trader NSELive — handles cloud IP restrictions via persistent sessions."""
+def _fetch_via_nselib(index_name: str) -> dict | None:
+    """Tier 1: nselib — dedicated NSE data library with its own session management."""
     symbol = _NSE_SYMBOL_MAP.get(index_name)
     if not symbol:
         return None
     try:
-        from jugaad_trader.nse import NSELive
-        nse = NSELive()
-        chain = nse.live_option_chain(symbol)
-        # jugaad returns the same structure as NSE API
-        if isinstance(chain, dict) and "records" in chain:
-            return _parse_nse_payload(chain)
-        return None
+        from nselib import derivatives
+        df = derivatives.nse_live_option_chain(symbol)
+        if df is None or df.empty:
+            return None
+        # nselib returns a flat DataFrame with CE/PE columns prefixed
+        spot = None
+        call_rows, put_rows = [], []
+        for _, row in df.iterrows():
+            k = float(row.get("Strike Price", row.get("strikePrice", 0)))
+            if k == 0:
+                continue
+            ce_oi  = float(row.get("CE_openInterest",  row.get("CE OI", 0)) or 0)
+            ce_vol = float(row.get("CE_totalTradedVolume", row.get("CE Volume", 0)) or 0)
+            ce_iv  = float(row.get("CE_impliedVolatility", row.get("CE IV", 0)) or 0) / 100.0
+            ce_ltp = float(row.get("CE_lastPrice", row.get("CE LTP", 0)) or 0)
+            pe_oi  = float(row.get("PE_openInterest",  row.get("PE OI", 0)) or 0)
+            pe_vol = float(row.get("PE_totalTradedVolume", row.get("PE Volume", 0)) or 0)
+            pe_iv  = float(row.get("PE_impliedVolatility", row.get("PE IV", 0)) or 0) / 100.0
+            pe_ltp = float(row.get("PE_lastPrice", row.get("PE LTP", 0)) or 0)
+            call_rows.append({"strike": k, "openInterest": ce_oi, "changeinOpenInterest": 0,
+                               "volume": ce_vol, "impliedVolatility": ce_iv, "lastPrice": ce_ltp})
+            put_rows.append({"strike": k, "openInterest": pe_oi, "changeinOpenInterest": 0,
+                              "volume": pe_vol, "impliedVolatility": pe_iv, "lastPrice": pe_ltp})
+            if spot is None:
+                uv = row.get("Underlying Value", row.get("underlyingValue"))
+                if uv:
+                    spot = float(uv)
+        if not call_rows or spot is None:
+            return None
+        expiry = df.iloc[0].get("Expiry Date", df.iloc[0].get("expiryDate", "N/A"))
+        return {
+            "expiry": str(expiry),
+            "calls": pd.DataFrame(call_rows),
+            "puts": pd.DataFrame(put_rows),
+            "spot": spot,
+        }
     except Exception as exc:
-        logger.warning("jugaad-trader fetch failed for %s: %s", index_name, exc)
+        logger.warning("nselib fetch failed for %s: %s", index_name, exc)
         return None
 
 
@@ -176,7 +205,7 @@ def _fetch_via_nse_api(index_name: str) -> dict | None:
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _fetch_via_dhan(index_name: str) -> dict | None:
-    """Tier 3: Dhan HQ API — requires DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN in Streamlit secrets."""
+    """Tier 3: Dhan HQ broker API — requires DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN in Streamlit secrets."""
     try:
         client_id    = st.secrets.get("DHAN_CLIENT_ID", "")
         access_token = st.secrets.get("DHAN_ACCESS_TOKEN", "")
@@ -187,40 +216,33 @@ def _fetch_via_dhan(index_name: str) -> dict | None:
             return None
         from dhanhq import dhanhq
         dhan = dhanhq(client_id, access_token)
-        expiry_resp = dhan.expiry_list(scrip_id, "INDEX")
-        if not expiry_resp or expiry_resp.get("status") != "success":
+        # Get nearest expiry (segment: IDX_I for NSE index)
+        exp_resp = dhan.expiry_list(scrip_id, dhan.IDX_I if hasattr(dhan, "IDX_I") else "IDX_I")
+        if not exp_resp or exp_resp.get("status") != "success":
             return None
-        nearest_expiry = expiry_resp["data"][0]
-        chain_resp = dhan.option_chain(scrip_id, "INDEX", nearest_expiry)
+        nearest_expiry = exp_resp["data"][0]
+        chain_resp = dhan.option_chain(scrip_id, dhan.IDX_I if hasattr(dhan, "IDX_I") else "IDX_I", nearest_expiry)
         if not chain_resp or chain_resp.get("status") != "success":
             return None
-        data = chain_resp.get("data", {})
-        spot = float(data.get("underlyingSpot", 0)) or None
+        chain_data = chain_resp.get("data", {})
+        # Dhan returns {oc: [{strikePrice, callOption:{...}, putOption:{...}}], underlyingSpot}
+        spot = float(chain_data.get("underlyingSpot", chain_data.get("underlying_spot", 0)) or 0)
         if not spot:
             return None
         call_rows, put_rows = [], []
-        for row in data.get("oc", []):
+        for row in chain_data.get("oc", []):
             k = float(row.get("strikePrice", 0))
-            ce = row.get("callOption", {})
-            pe = row.get("putOption", {})
-            if ce:
-                call_rows.append({
-                    "strike": k,
-                    "openInterest": ce.get("openInterest", 0),
-                    "changeinOpenInterest": ce.get("changeInOI", 0),
-                    "volume": ce.get("volume", 0),
-                    "impliedVolatility": ce.get("impliedVolatility", 0) / 100.0,
-                    "lastPrice": ce.get("lastTradedPrice", 0),
-                })
-            if pe:
-                put_rows.append({
-                    "strike": k,
-                    "openInterest": pe.get("openInterest", 0),
-                    "changeinOpenInterest": pe.get("changeInOI", 0),
-                    "volume": pe.get("volume", 0),
-                    "impliedVolatility": pe.get("impliedVolatility", 0) / 100.0,
-                    "lastPrice": pe.get("lastTradedPrice", 0),
-                })
+            for side, store in [("callOption", call_rows), ("putOption", put_rows)]:
+                opt = row.get(side, {})
+                if opt:
+                    store.append({
+                        "strike": k,
+                        "openInterest": opt.get("openInterest", 0),
+                        "changeinOpenInterest": opt.get("changeInOI", 0),
+                        "volume": opt.get("volume", 0),
+                        "impliedVolatility": opt.get("impliedVolatility", 0) / 100.0,
+                        "lastPrice": opt.get("lastTradedPrice", opt.get("ltp", 0)),
+                    })
         if not call_rows or not put_rows:
             return None
         return {
@@ -255,7 +277,7 @@ def _fetch_via_yfinance(index_name: str) -> dict | None:
 
 @st.cache_data(ttl=900, show_spinner=False)
 def _fetch_options(index_name: str) -> dict | None:
-    for fn in [_fetch_via_jugaad, _fetch_via_nse_api, _fetch_via_dhan, _fetch_via_yfinance]:
+    for fn in [_fetch_via_nselib, _fetch_via_nse_api, _fetch_via_dhan, _fetch_via_yfinance]:
         result = fn(index_name)
         if result:
             return result
