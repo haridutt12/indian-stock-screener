@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-28T15:06:53.028432+00:00",
+  "updated_at": "2026-08-31T09:27:26.545115+00:00",
   "bulk_block_deals": [
     {
       "date": "2026-08-28",
@@ -2868,18 +2868,6 @@
       "company": "INFY"
     },
     {
-      "Shares": 10000,
-      "URL": "",
-      "txn": "",
-      "person": "Soneja (Atul)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-29",
-      "Ownership": "D",
-      "value_cr": 0.01,
-      "symbol": "INFY",
-      "company": "INFY"
-    },
-    {
       "Shares": 900,
       "URL": "",
       "txn": "",
@@ -3011,10 +2999,10 @@
       "company": "HCLTECH"
     },
     {
-      "Shares": 805,
+      "Shares": 2238,
       "URL": "",
       "txn": "",
-      "person": "Krishnamurthy (V G)",
+      "person": "Aravamudhan (Srinivasan)",
       "category": "UNREPORTED",
       "disclosed": "2026-08-13",
       "Ownership": "D",
@@ -3023,10 +3011,10 @@
       "company": "HCLTECH"
     },
     {
-      "Shares": 2238,
+      "Shares": 805,
       "URL": "",
       "txn": "",
-      "person": "Aravamudhan (Srinivasan)",
+      "person": "Krishnamurthy (V G)",
       "category": "UNREPORTED",
       "disclosed": "2026-08-13",
       "Ownership": "D",
@@ -3119,40 +3107,88 @@
       "company": "HCLTECH"
     },
     {
-      "Shares": 500,
+      "Shares": 4678,
       "URL": "",
       "txn": "",
-      "person": "Krishnamurthy (Shashidhar)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-31",
-      "Ownership": "D",
-      "value_cr": 0.0,
-      "symbol": "HCLTECH",
-      "company": "HCLTECH"
-    },
-    {
-      "Shares": 6000,
-      "URL": "",
-      "txn": "",
-      "person": "Krishnamurthy (Shashidhar)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-29",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-27",
       "Ownership": "D",
       "value_cr": 0.01,
-      "symbol": "HCLTECH",
-      "company": "HCLTECH"
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
     },
     {
-      "Shares": 672,
+      "Shares": 4867,
       "URL": "",
       "txn": "",
-      "person": "Chunduri (Dakshina Murthy)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-29",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-26",
+      "Ownership": "D",
+      "value_cr": 0.01,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 9712,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-25",
+      "Ownership": "D",
+      "value_cr": 0.01,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 1976,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-24",
       "Ownership": "D",
       "value_cr": 0.0,
-      "symbol": "HCLTECH",
-      "company": "HCLTECH"
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 29322,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-21",
+      "Ownership": "D",
+      "value_cr": 0.04,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 3415,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-20",
+      "Ownership": "D",
+      "value_cr": 0.0,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
+    },
+    {
+      "Shares": 15984,
+      "URL": "",
+      "txn": "",
+      "person": "JSW Steel Employees Welfare Trust",
+      "category": "Institution- Corporation",
+      "disclosed": "2026-08-19",
+      "Ownership": "D",
+      "value_cr": 0.02,
+      "symbol": "JSWSTEEL",
+      "company": "JSWSTEEL"
     },
     {
       "Shares": 3275,
@@ -3275,18 +3311,6 @@
       "company": "JSWSTEEL"
     },
     {
-      "Shares": 2511,
-      "URL": "",
-      "txn": "",
-      "person": "JSW Steel Employees Welfare Trust",
-      "category": "Institution- Corporation",
-      "disclosed": "2026-07-29",
-      "Ownership": "D",
-      "value_cr": 0.0,
-      "symbol": "JSWSTEEL",
-      "company": "JSWSTEEL"
-    },
-    {
       "Shares": 712884,
       "URL": "",
       "txn": "",
@@ -3366,30 +3390,6 @@
       "disclosed": "2026-08-07",
       "Ownership": "D",
       "value_cr": 0.03,
-      "symbol": "TATACONSUM",
-      "company": "TATACONSUM"
-    },
-    {
-      "Shares": 1347,
-      "URL": "",
-      "txn": "",
-      "person": "Sebastian (Amith)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-31",
-      "Ownership": "D",
-      "value_cr": 0.0,
-      "symbol": "TATACONSUM",
-      "company": "TATACONSUM"
-    },
-    {
-      "Shares": 1000,
-      "URL": "",
-      "txn": "",
-      "person": "Dixit (Akansha)",
-      "category": "UNREPORTED",
-      "disclosed": "2026-07-29",
-      "Ownership": "D",
-      "value_cr": 0.0,
       "symbol": "TATACONSUM",
       "company": "TATACONSUM"
     }
