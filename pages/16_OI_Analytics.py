@@ -332,7 +332,7 @@ _synthetic = False
 if data is None or spot is None:
     _has_dhan = bool(st.secrets.get("DHAN_CLIENT_ID", ""))
     st.warning(
-        "Live options data unavailable — all sources failed (jugaad-trader, NSE API, yfinance). "
+        "Live options data unavailable — all sources failed (nselib, NSE API, yfinance). "
         + ("" if _has_dhan else
            "**Optional:** Add `DHAN_CLIENT_ID` + `DHAN_ACCESS_TOKEN` to Streamlit secrets for broker-backed real data. "
            "Create a free account at [dhan.co](https://dhan.co) → API → Generate token.")
